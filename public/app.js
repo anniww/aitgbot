@@ -26,6 +26,7 @@ const state = {
   seenMessageIds: new Set(),
   realtimeTimer: null,
   realtimeBusy: false,
+  soundEnabled: localStorage.getItem('tg_sound_enabled') !== 'false',
   soundUnlocked: false,
   aiTestReply: '',
   ruleTestResult: null
@@ -246,6 +247,7 @@ function showIncomingNotice(message, count) {
 }
 
 function playNotificationSound() {
+  if (!state.soundEnabled) return;
   if (!state.soundUnlocked) return;
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -282,6 +284,7 @@ function render() {
         </div>
         <div class="top-actions">
           <span class="live-indicator"><span class="live-dot"></span>Live</span>
+          <button data-action="toggle-sound">${state.soundEnabled ? 'Sound On' : 'Sound Off'}</button>
           <button data-action="refresh">Refresh</button>
           <button data-action="logout">Logout</button>
         </div>
@@ -1267,6 +1270,16 @@ function bindCommon() {
     });
   });
   document.querySelector('[data-action="refresh"]')?.addEventListener('click', refreshAll);
+  document.querySelector('[data-action="toggle-sound"]')?.addEventListener('click', () => {
+    state.soundEnabled = !state.soundEnabled;
+    localStorage.setItem('tg_sound_enabled', String(state.soundEnabled));
+    notify(state.soundEnabled ? 'Message sound enabled' : 'Message sound disabled');
+    if (state.soundEnabled) {
+      state.soundUnlocked = true;
+      playNotificationSound();
+    }
+    render();
+  });
   document.querySelector('[data-action="logout"]')?.addEventListener('click', () => {
     stopRealtime();
     localStorage.removeItem('tg_admin_password');
