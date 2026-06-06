@@ -1139,6 +1139,29 @@ label {
   white-space: pre-wrap;
 }
 
+.knowledge-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.knowledge-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  padding: 12px;
+}
+
+.knowledge-row p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
 .button-editor {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) auto;

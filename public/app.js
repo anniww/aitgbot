@@ -11,6 +11,7 @@ const state = {
   broadcastDetail: null,
   media: [],
   logs: [],
+  knowledgeDocs: [],
   systemStatus: null,
   aiConfig: null,
   deploymentReadiness: null,
@@ -26,6 +27,8 @@ const state = {
   seenMessageIds: new Set(),
   realtimeTimer: null,
   realtimeBusy: false,
+  livePaused: localStorage.getItem('tg_live_paused') === 'true',
+  lastInteractionAt: Date.now(),
   soundEnabled: localStorage.getItem('tg_sound_enabled') !== 'false',
   soundVolume: Number(localStorage.getItem('tg_sound_volume') || 60),
   soundUnlocked: false,
@@ -67,6 +70,12 @@ window.addEventListener('error', (event) => {
 
 window.addEventListener('unhandledrejection', (event) => {
   notify(`Request error: ${event.reason?.message || event.reason || 'Unknown error'}`);
+});
+
+['click', 'input', 'keydown', 'scroll', 'pointermove'].forEach((type) => {
+  window.addEventListener(type, () => {
+    state.lastInteractionAt = Date.now();
+  }, { passive: true });
 });
 
 document.addEventListener('click', async (event) => {
@@ -169,14 +178,16 @@ async function refreshAll() {
 
 async function refreshScoped() {
   if (!state.selectedBotId) return;
-  const [templates, rules, menus] = await Promise.all([
+  const [templates, rules, menus, knowledgeDocs] = await Promise.all([
     api(`/api/templates?botId=${state.selectedBotId}`),
     api(`/api/rules?botId=${state.selectedBotId}`),
-    api(`/api/menus?botId=${state.selectedBotId}`)
+    api(`/api/menus?botId=${state.selectedBotId}`),
+    api(`/api/knowledge?botId=${state.selectedBotId}`)
   ]);
   state.templates = templates;
   state.rules = rules;
   state.menus = menus;
+  state.knowledgeDocs = knowledgeDocs;
   await refreshMessages();
 }
 
@@ -199,7 +210,7 @@ function stopRealtime() {
 }
 
 async function checkRealtimeUpdates() {
-  if (!state.password || state.realtimeBusy) return;
+  if (!state.password || state.realtimeBusy || state.livePaused) return;
   state.realtimeBusy = true;
   try {
     const editing = isUserEditing();
@@ -221,7 +232,7 @@ async function checkRealtimeUpdates() {
         showIncomingNotice(latest, newUserMessages.length);
       }
     }
-    if (!editing) render();
+    if (!editing && isUserIdle()) render();
   } catch {
     // Keep realtime quiet during transient network or auth refresh issues.
   } finally {
@@ -235,6 +246,10 @@ function isUserEditing() {
   if (state.modal) return true;
   if (active.closest?.('#replyForm, #botForm, #templateForm, #ruleForm, #broadcastForm, #testChatForm, #importForm')) return true;
   return ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
+}
+
+function isUserIdle() {
+  return Date.now() - state.lastInteractionAt > 10000;
 }
 
 function rememberMessages(messages = []) {
@@ -295,6 +310,7 @@ function render() {
         </div>
         <div class="top-actions">
           <span class="live-indicator"><span class="live-dot"></span>Live</span>
+          <button data-action="toggle-live">${state.livePaused ? 'Resume Live' : 'Pause Live'}</button>
           <button data-action="toggle-sound">${state.soundEnabled ? 'Sound On' : 'Sound Off'}</button>
           <label class="volume-control" title="Message sound volume">
             <span>Vol</span>
@@ -532,10 +548,12 @@ function aiView() {
           <div class="form-row"><label>Provider Preset</label><select id="aiProviderPreset"><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="custom">Custom</option></select></div>
           <div class="form-row"><label>Model</label><input id="aiModel" value="${escapeAttr(bot.aiModel || '')}" list="aiModelOptions" /><datalist id="aiModelOptions"><option value="gpt-4.1-mini"></option><option value="deepseek-v4-flash"></option><option value="deepseek-v4-pro"></option></datalist></div>
           <div class="form-row"><label>Context Limit</label><input id="aiContextLimit" type="number" value="${escapeAttr(bot.aiContextLimit || 10)}" /></div>
+          <div class="form-row"><label>Reply Delay Seconds</label><input id="replyDelaySeconds" type="number" min="0" max="120" value="${escapeAttr(bot.replyDelaySeconds || 0)}" /></div>
           <div class="form-row full"><label>System Prompt</label><textarea id="aiPrompt">${escapeHtml(bot.aiPrompt || '')}</textarea></div>
         </div>
         <div class="actions" style="margin-top:14px;"><button class="primary" data-action="save-ai">Save AI Settings</button></div>
       </div>
+      ${knowledgeView()}
       <div class="panel" style="margin-top:16px;">
         <h2>AI Test</h2>
         <div class="form-row">
@@ -596,6 +614,43 @@ function aiApiConfigView() {
         <button class="primary" data-action="save-ai-config">Save API Key</button>
         <button data-action="fill-deepseek-config">Reset DeepSeek Defaults</button>
       </div>
+    </div>
+  `;
+}
+
+function knowledgeView() {
+  return `
+    <div class="panel" style="margin-top:16px;">
+      <div class="split-head">
+        <div>
+          <h2>Business Knowledge</h2>
+          <p class="muted">Upload text knowledge for this bot. AI replies will use these documents when relevant.</p>
+        </div>
+        <div class="readiness-score ${state.knowledgeDocs.length ? 'pass' : 'warning'}">${state.knowledgeDocs.length} Docs</div>
+      </div>
+      <form id="knowledgeForm" class="form-grid">
+        <input type="hidden" name="botId" value="${escapeAttr(state.selectedBotId)}" />
+        <div class="form-row"><label>Knowledge File</label><input name="file" type="file" accept=".txt,.md,.csv,.json,.html,.xml,text/*" /></div>
+        <div class="form-row"><label>Name</label><input name="name" placeholder="Pricing, FAQ, product policy..." /></div>
+        <div class="form-row full"><label>Paste Knowledge</label><textarea name="text" placeholder="Paste business rules, prices, FAQ, shipping policy..."></textarea></div>
+        <div class="actions full"><button class="primary">Upload Knowledge</button></div>
+      </form>
+      <div class="knowledge-list">
+        ${state.knowledgeDocs.map(knowledgeRow).join('') || '<div class="empty">No knowledge files yet.</div>'}
+      </div>
+    </div>
+  `;
+}
+
+function knowledgeRow(doc) {
+  return `
+    <div class="knowledge-row">
+      <div>
+        <strong>${escapeHtml(doc.name)}</strong>
+        <div class="muted">${escapeHtml(doc.mimeType || 'text/plain')} - ${formatBytes(doc.size || 0)} - ${formatTime(doc.updatedAt)}</div>
+        <p>${escapeHtml(doc.excerpt || '')}</p>
+      </div>
+      <button class="danger" data-action="delete-knowledge" data-id="${doc.id}">Delete</button>
     </div>
   `;
 }
@@ -1306,6 +1361,12 @@ function bindCommon() {
     });
   });
   document.querySelector('[data-action="refresh"]')?.addEventListener('click', refreshAll);
+  document.querySelector('[data-action="toggle-live"]')?.addEventListener('click', () => {
+    state.livePaused = !state.livePaused;
+    localStorage.setItem('tg_live_paused', String(state.livePaused));
+    notify(state.livePaused ? 'Live refresh paused' : 'Live refresh resumed');
+    render();
+  });
   document.querySelector('[data-action="toggle-sound"]')?.addEventListener('click', () => {
     state.soundEnabled = !state.soundEnabled;
     localStorage.setItem('tg_sound_enabled', String(state.soundEnabled));
@@ -1438,6 +1499,7 @@ function bindForms() {
   document.querySelector('#broadcastForm')?.addEventListener('submit', submitBroadcast);
   document.querySelector('#replyForm')?.addEventListener('submit', submitReply);
   document.querySelector('#testChatForm')?.addEventListener('submit', submitTestChat);
+  document.querySelector('#knowledgeForm')?.addEventListener('submit', submitKnowledge);
   document.querySelector('[data-action="save-internal-note"]')?.addEventListener('click', submitInternalNote);
   document.querySelector('[data-action="preview-translation"]')?.addEventListener('click', previewTranslation);
   document.querySelector('[data-action="test-rule"]')?.addEventListener('click', testRule);
@@ -1467,6 +1529,12 @@ function bindForms() {
     await api(`/api/rules/${button.dataset.id}`, { method: 'DELETE' });
     notify('Rule deleted');
     await refreshAll();
+  }));
+  document.querySelectorAll('[data-action="delete-knowledge"]').forEach((button) => button.addEventListener('click', async () => {
+    await api(`/api/knowledge/${button.dataset.id}`, { method: 'DELETE' });
+    notify('Knowledge deleted');
+    await refreshScoped();
+    render();
   }));
   document.querySelectorAll('[data-action="send-broadcast"]').forEach((button) => button.addEventListener('click', async () => {
     if (!confirm('Send this broadcast now?')) return;
@@ -1804,11 +1872,28 @@ async function submitTestChat(event) {
   }
 }
 
+async function submitKnowledge(event) {
+  event.preventDefault();
+  try {
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    if (!data.get('file')?.name && !String(data.get('text') || '').trim()) return notify('Upload a text file or paste knowledge first');
+    await api('/api/knowledge', { method: 'POST', body: data });
+    form.reset();
+    notify('Knowledge uploaded');
+    await refreshScoped();
+    render();
+  } catch (error) {
+    notify(error.message);
+  }
+}
+
 async function saveAi() {
   const patch = {
     aiEnabled: document.querySelector('#aiEnabled').value === 'true',
     aiModel: document.querySelector('#aiModel').value,
     aiContextLimit: Number(document.querySelector('#aiContextLimit').value || 10),
+    replyDelaySeconds: Number(document.querySelector('#replyDelaySeconds').value || 0),
     aiPrompt: document.querySelector('#aiPrompt').value
   };
   await api(`/api/bots/${state.selectedBotId}`, { method: 'PUT', body: JSON.stringify(patch) });

@@ -104,6 +104,11 @@ async function routeApi(request, env, ctx, url) {
     const menusMatch = url.pathname.match(/^\/api\/menus\/([^/]+)$/);
     if (menusMatch && request.method === 'PUT') return updateMenus(request, env, menusMatch[1]);
 
+    if (url.pathname === '/api/knowledge' && request.method === 'GET') return json(await listKnowledgeDocs(env, url.searchParams.get('botId')));
+    if (url.pathname === '/api/knowledge' && request.method === 'POST') return createKnowledgeDoc(request, env);
+    const knowledgeMatch = url.pathname.match(/^\/api\/knowledge\/([^/]+)$/);
+    if (knowledgeMatch && request.method === 'DELETE') return deleteKnowledgeDoc(env, knowledgeMatch[1]);
+
     return json({ error: 'NOT_FOUND' }, { status: 404 });
   } catch (error) {
     await createSystemLog(env, { level: 'error', action: 'worker_error', message: error.message });
@@ -298,13 +303,14 @@ async function createBot(request, env) {
     aiPrompt: 'You are a professional customer support assistant. Keep replies concise and polite.',
     aiModel: ai.model,
     aiContextLimit: 10,
+    replyDelaySeconds: Number(body.replyDelaySeconds || 0),
     tokenVerified: !skipTokenTest,
     createdAt: now,
     updatedAt: now
   };
   await env.DB.prepare(
-    `INSERT INTO bots (id, name, username, token, status, welcome_message, default_reply, ai_enabled, ai_prompt, ai_model, ai_context_limit, token_verified, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO bots (id, name, username, token, status, welcome_message, default_reply, ai_enabled, ai_prompt, ai_model, ai_context_limit, reply_delay_seconds, token_verified, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       bot.id,
@@ -318,6 +324,7 @@ async function createBot(request, env) {
       bot.aiPrompt,
       bot.aiModel,
       bot.aiContextLimit,
+      bot.replyDelaySeconds,
       bot.tokenVerified ? 1 : 0,
       bot.createdAt,
       bot.updatedAt
@@ -422,7 +429,7 @@ async function updateBot(request, env, botId) {
   if (!existing) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
   const merged = { ...existing, ...body, updatedAt: new Date().toISOString() };
   await env.DB.prepare(
-    `UPDATE bots SET name=?, token=COALESCE(NULLIF(?, ''), token), welcome_message=?, default_reply=?, ai_enabled=?, ai_prompt=?, ai_model=?, ai_context_limit=?, updated_at=? WHERE id=?`
+    `UPDATE bots SET name=?, token=COALESCE(NULLIF(?, ''), token), welcome_message=?, default_reply=?, ai_enabled=?, ai_prompt=?, ai_model=?, ai_context_limit=?, reply_delay_seconds=?, updated_at=? WHERE id=?`
   )
     .bind(
       merged.name || existing.name,
@@ -433,6 +440,7 @@ async function updateBot(request, env, botId) {
       merged.aiPrompt || '',
       merged.aiModel || '',
       Number(merged.aiContextLimit || 10),
+      Math.max(0, Math.min(120, Number(merged.replyDelaySeconds || 0))),
       merged.updatedAt,
       botId
     )
@@ -475,6 +483,7 @@ function rowToBot(row) {
     aiPrompt: row.ai_prompt,
     aiModel: row.ai_model,
     aiContextLimit: Number(row.ai_context_limit || 10),
+    replyDelaySeconds: Number(row.reply_delay_seconds || 0),
     tokenVerified: Boolean(row.token_verified),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1023,6 +1032,76 @@ async function updateMenusRows(env, botId, menus) {
     .run();
 }
 
+async function listKnowledgeDocs(env, botId) {
+  if (!botId) return [];
+  const { results } = await env.DB.prepare(
+    'SELECT id, bot_id, name, mime_type, size, substr(content, 1, 220) AS excerpt, created_at, updated_at FROM knowledge_documents WHERE bot_id = ? ORDER BY updated_at DESC'
+  )
+    .bind(botId)
+    .all();
+  return results.map((row) => ({
+    id: row.id,
+    botId: row.bot_id,
+    name: row.name,
+    mimeType: row.mime_type,
+    size: row.size,
+    excerpt: row.excerpt,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+}
+
+async function createKnowledgeDoc(request, env) {
+  const form = await request.formData();
+  const botId = String(form.get('botId') || '');
+  const file = form.get('file');
+  const pastedText = String(form.get('text') || '');
+  if (!botId || !(await getBot(env, botId))) return json({ error: 'Select a valid bot first' }, { status: 400 });
+  let name = String(form.get('name') || 'Business knowledge');
+  let mimeType = 'text/plain';
+  let content = pastedText;
+  if (file instanceof File && file.name) {
+    name = file.name;
+    mimeType = file.type || 'text/plain';
+    if (!isTextKnowledgeFile(name, mimeType)) {
+      return json({ error: 'Only text knowledge files are supported now: txt, md, csv, json, html, xml.' }, { status: 400 });
+    }
+    content = await file.text();
+  }
+  content = content.trim();
+  if (!content) return json({ error: 'Knowledge content is empty' }, { status: 400 });
+  if (content.length > 200000) content = content.slice(0, 200000);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    `INSERT INTO knowledge_documents (id, bot_id, name, mime_type, content, size, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(id, botId, name, mimeType, content, content.length, now, now)
+    .run();
+  await createSystemLog(env, { level: 'info', action: 'knowledge_uploaded', message: 'Bot knowledge document uploaded', botId, entityId: id, metadata: { name } });
+  return json((await listKnowledgeDocs(env, botId)).find((item) => item.id === id));
+}
+
+async function deleteKnowledgeDoc(env, id) {
+  await env.DB.prepare('DELETE FROM knowledge_documents WHERE id = ?').bind(id).run();
+  await createSystemLog(env, { level: 'warn', action: 'knowledge_deleted', message: 'Bot knowledge document deleted', entityId: id });
+  return json({ ok: true });
+}
+
+function isTextKnowledgeFile(name = '', mimeType = '') {
+  const lower = name.toLowerCase();
+  return (
+    mimeType.startsWith('text/') ||
+    lower.endsWith('.txt') ||
+    lower.endsWith('.md') ||
+    lower.endsWith('.csv') ||
+    lower.endsWith('.json') ||
+    lower.endsWith('.html') ||
+    lower.endsWith('.xml')
+  );
+}
+
 async function listSystemLogs(env, limit = 200) {
   const { results } = await env.DB.prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT ?').bind(limit).all();
   return results.map((row) => ({
@@ -1177,6 +1256,7 @@ async function handleIncomingMessage(env, bot, message) {
 
   const chatState = await getChatByBotChat(env, bot.id, chatId);
   if (chatState?.status === 'blocked' || chatState?.status === 'manual') return;
+  await waitForReplyDelay(bot);
 
   const isStart = String(message.text || '').trim().startsWith('/start');
   if (isStart) {
@@ -1316,9 +1396,11 @@ async function generateAiReply(env, bot, textValue, chatId = '') {
   if (!active.apiKey) throw new Error('AI_API_KEY_REQUIRED');
   if (!bot.aiEnabled && chatId) return '';
   const history = chatId ? await listMessages(env, new URLSearchParams(`botId=${encodeURIComponent(bot.id)}&chatId=${encodeURIComponent(chatId)}`)) : [];
+  const knowledge = await findRelevantKnowledge(env, bot.id, textValue);
   const limit = Number(bot.aiContextLimit || 10);
   const messages = [
     { role: 'system', content: bot.aiPrompt || 'You are a professional customer support assistant. Keep replies concise and polite.' },
+    ...(knowledge ? [{ role: 'system', content: `Use this business knowledge when relevant:\n${knowledge}` }] : []),
     ...history
       .filter((item) => item.role === 'user' || item.role === 'bot')
       .slice(-limit)
@@ -1390,6 +1472,32 @@ async function translateText(env, input) {
     text: data.choices?.[0]?.message?.content?.trim() || input.text,
     targetLanguage
   };
+}
+
+async function findRelevantKnowledge(env, botId, textValue) {
+  const { results } = await env.DB.prepare('SELECT name, content FROM knowledge_documents WHERE bot_id = ? ORDER BY updated_at DESC LIMIT 20').bind(botId).all();
+  if (!results.length) return '';
+  const terms = String(textValue || '')
+    .toLowerCase()
+    .split(/[\s,.;:!?，。！？、]+/)
+    .filter((term) => term.length >= 2)
+    .slice(0, 12);
+  const scored = results
+    .map((doc) => {
+      const lower = String(doc.content || '').toLowerCase();
+      const score = terms.reduce((sum, term) => sum + (lower.includes(term) ? 1 : 0), 0);
+      return { ...doc, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  const selected = scored.some((doc) => doc.score > 0) ? scored.filter((doc) => doc.score > 0) : scored.slice(0, 2);
+  return selected.map((doc) => `# ${doc.name}\n${String(doc.content || '').slice(0, 2500)}`).join('\n\n');
+}
+
+async function waitForReplyDelay(bot) {
+  const seconds = Math.max(0, Math.min(120, Number(bot.replyDelaySeconds || 0)));
+  if (!seconds) return;
+  await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 }
 
 function resolveAiModel(botModel, active) {
