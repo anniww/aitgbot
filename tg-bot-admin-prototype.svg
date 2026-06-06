@@ -1,0 +1,330 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="3600" viewBox="0 0 2400 3600">
+  <defs>
+    <style>
+      .bg{fill:#f5f6f8}
+      .screen{fill:#fff;stroke:#cfd5df;stroke-width:2}
+      .top{fill:#111827}
+      .side{fill:#f8fafc;stroke:#d8dee8;stroke-width:1}
+      .panel{fill:#fff;stroke:#d8dee8;stroke-width:1.5}
+      .mutedPanel{fill:#f8fafc;stroke:#d8dee8;stroke-width:1.5}
+      .card{fill:#fff;stroke:#d8dee8;stroke-width:1.5}
+      .primary{fill:#2563eb}
+      .success{fill:#16a34a}
+      .warn{fill:#f59e0b}
+      .danger{fill:#dc2626}
+      .softBlue{fill:#eff6ff;stroke:#bfdbfe;stroke-width:1.5}
+      .softGreen{fill:#f0fdf4;stroke:#bbf7d0;stroke-width:1.5}
+      .softAmber{fill:#fffbeb;stroke:#fde68a;stroke-width:1.5}
+      .softRed{fill:#fef2f2;stroke:#fecaca;stroke-width:1.5}
+      .text{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;fill:#111827}
+      .white{fill:#fff}
+      .muted{fill:#6b7280}
+      .small{font-size:18px}
+      .body{font-size:22px}
+      .label{font-size:20px;font-weight:600}
+      .title{font-size:34px;font-weight:700}
+      .h2{font-size:28px;font-weight:700}
+      .h3{font-size:24px;font-weight:700}
+      .btnText{font-size:18px;font-weight:700}
+      .nav{font-size:20px}
+      .mono{font-family:Consolas,"Microsoft YaHei",monospace;font-size:17px}
+      .line{stroke:#d8dee8;stroke-width:1.5}
+      .arrow{stroke:#64748b;stroke-width:2;fill:none;marker-end:url(#arrow)}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="2400" height="3600"/>
+  <text class="text title" x="80" y="70">TG 机器人管理系统 - 完整功能原型图</text>
+  <text class="text body muted" x="80" y="110">个人自用 / 多机器人 / 客服 / 自动回复 / AI 对话 / 图片视频回复 / 群发 / 连接诊断</text>
+
+  <!-- Screen frame template coordinates: 80/1240 columns, rows 160, 820, 1480, 2140 -->
+
+  <!-- 1 Dashboard -->
+  <g transform="translate(80,160)">
+    <rect class="screen" x="0" y="0" width="1080" height="600" rx="6"/>
+    <rect class="top" x="0" y="0" width="1080" height="56" rx="6"/>
+    <text class="white h3" x="24" y="37">TG Bot 管理系统</text>
+    <text class="white small" x="850" y="35">管理员  设置  退出</text>
+    <rect class="side" x="0" y="56" width="172" height="544"/>
+    <text class="text nav" x="24" y="104">仪表盘</text>
+    <text class="text nav muted" x="24" y="146">机器人管理</text>
+    <text class="text nav muted" x="24" y="188">消息中心</text>
+    <text class="text nav muted" x="24" y="230">自动回复</text>
+    <text class="text nav muted" x="24" y="272">菜单按钮</text>
+    <text class="text nav muted" x="24" y="314">AI 设置</text>
+    <text class="text nav muted" x="24" y="356">用户管理</text>
+    <text class="text nav muted" x="24" y="398">群发管理</text>
+    <text class="text nav muted" x="24" y="440">诊断日志</text>
+    <text class="text h2" x="204" y="104">仪表盘</text>
+    <g transform="translate(204,130)">
+      <rect class="card" x="0" y="0" width="195" height="86" rx="6"/>
+      <text class="text small muted" x="18" y="28">机器人总数</text>
+      <text class="text h2" x="18" y="64">5</text>
+      <rect class="card" x="215" y="0" width="195" height="86" rx="6"/>
+      <text class="text small muted" x="233" y="28">运行中</text>
+      <text class="text h2" x="233" y="64">3</text>
+      <rect class="card" x="430" y="0" width="195" height="86" rx="6"/>
+      <text class="text small muted" x="448" y="28">今日消息</text>
+      <text class="text h2" x="448" y="64">286</text>
+      <rect class="card" x="645" y="0" width="195" height="86" rx="6"/>
+      <text class="text small muted" x="663" y="28">活跃用户</text>
+      <text class="text h2" x="663" y="64">74</text>
+    </g>
+    <rect class="panel" x="204" y="246" width="470" height="230" rx="6"/>
+    <text class="text h3" x="224" y="284">最近机器人状态</text>
+    <line class="line" x1="224" y1="308" x2="654" y2="308"/>
+    <text class="text small muted" x="224" y="338">机器人</text><text class="text small muted" x="360" y="338">状态</text><text class="text small muted" x="470" y="338">最近消息</text><text class="text small muted" x="590" y="338">操作</text>
+    <text class="text body" x="224" y="378">客服Bot</text><text class="text body" x="360" y="378">运行中</text><text class="text body" x="470" y="378">2分钟前</text><text class="text body" x="590" y="378">诊断</text>
+    <text class="text body" x="224" y="420">AI助手Bot</text><text class="text body" x="360" y="420">已停止</text><text class="text body" x="470" y="420">1小时前</text><text class="text body" x="590" y="420">启动</text>
+    <rect class="panel" x="694" y="246" width="330" height="230" rx="6"/>
+    <text class="text h3" x="714" y="284">消息中心预览</text>
+    <text class="text body" x="714" y="328">用户A：请问价格？</text>
+    <text class="text body" x="714" y="368">用户B：/start</text>
+    <text class="text body" x="714" y="408">用户C：我要人工客服</text>
+    <rect class="softGreen" x="204" y="504" width="820" height="40" rx="6"/>
+    <text class="text small" x="224" y="530">诊断：Token 正常 | API 可访问 | Webhook 未设置 | 轮询运行中</text>
+    <text class="text label" x="0" y="-26">1. 仪表盘：总览所有机器人、消息、诊断状态</text>
+  </g>
+
+  <!-- 2 Bot management and detail -->
+  <g transform="translate(1240,160)">
+    <rect class="screen" x="0" y="0" width="1080" height="600" rx="6"/>
+    <rect class="top" x="0" y="0" width="1080" height="56" rx="6"/>
+    <text class="white h3" x="24" y="37">机器人管理</text>
+    <rect class="primary" x="900" y="14" width="132" height="30" rx="5"/>
+    <text class="white btnText" x="922" y="35">+ 添加机器人</text>
+    <text class="text h2" x="40" y="100">机器人列表</text>
+    <rect class="panel" x="40" y="122" width="1000" height="190" rx="6"/>
+    <text class="text small muted" x="62" y="158">名称</text><text class="text small muted" x="260" y="158">Username</text><text class="text small muted" x="450" y="158">状态</text><text class="text small muted" x="590" y="158">接收方式</text><text class="text small muted" x="770" y="158">操作</text>
+    <line class="line" x1="60" y1="174" x2="1020" y2="174"/>
+    <text class="text body" x="62" y="210">客服Bot</text><text class="text body" x="260" y="210">@service_bot</text><text class="text body" x="450" y="210">运行中</text><text class="text body" x="590" y="210">轮询</text><text class="text body" x="770" y="210">配置 停止 诊断</text>
+    <text class="text body" x="62" y="260">AI助手Bot</text><text class="text body" x="260" y="260">@ai_bot</text><text class="text body" x="450" y="260">已停止</text><text class="text body" x="590" y="260">轮询</text><text class="text body" x="770" y="260">配置 启动 删除</text>
+    <rect class="panel" x="40" y="342" width="470" height="190" rx="6"/>
+    <text class="text h3" x="62" y="380">添加机器人弹窗</text>
+    <text class="text small muted" x="62" y="416">Bot Token</text>
+    <rect class="mutedPanel" x="62" y="432" width="380" height="36" rx="5"/>
+    <text class="text small muted" x="78" y="456">123456:ABC-DEF...</text>
+    <rect class="softBlue" x="62" y="486" width="132" height="30" rx="5"/>
+    <text class="text btnText" x="82" y="507">测试 Token</text>
+    <text class="text small" x="214" y="507">检测结果：@your_bot 正常</text>
+    <rect class="panel" x="548" y="342" width="492" height="190" rx="6"/>
+    <text class="text h3" x="570" y="380">机器人详情配置</text>
+    <text class="text small" x="570" y="416">欢迎语 / 默认回复 / AI 开关 / Prompt / 模型</text>
+    <text class="text small" x="570" y="452">启动、停止、删除 webhook、重启轮询</text>
+    <text class="text small" x="570" y="488">每个机器人独立规则、菜单、AI 配置</text>
+    <path class="arrow" d="M510 436 C540 436 530 436 548 436"/>
+    <text class="text label" x="0" y="-26">2. 机器人管理：添加 Token、启停、独立配置</text>
+  </g>
+
+  <!-- 3 Message center -->
+  <g transform="translate(80,820)">
+    <rect class="screen" x="0" y="0" width="1080" height="600" rx="6"/>
+    <rect class="top" x="0" y="0" width="1080" height="56" rx="6"/>
+    <text class="white h3" x="24" y="37">消息中心</text>
+    <rect class="mutedPanel" x="24" y="78" width="1032" height="48" rx="6"/>
+    <text class="text small" x="44" y="108">机器人 [全部 v]  状态 [全部 v]  类型 [全部 v]  搜索 [ 用户名 / chat_id / 内容 ]  [刷新]</text>
+    <rect class="panel" x="24" y="150" width="292" height="400" rx="6"/>
+    <text class="text h3" x="44" y="186">会话列表</text>
+    <rect class="softBlue" x="44" y="204" width="252" height="70" rx="6"/>
+    <text class="text body" x="58" y="234">用户A  2分钟前</text>
+    <text class="text small muted" x="58" y="258">请问价格？</text>
+    <rect class="mutedPanel" x="44" y="286" width="252" height="70" rx="6"/>
+    <text class="text body" x="58" y="316">用户B  10分钟前</text>
+    <text class="text small muted" x="58" y="340">/start</text>
+    <rect class="mutedPanel" x="44" y="368" width="252" height="70" rx="6"/>
+    <text class="text body" x="58" y="398">用户C  1小时前</text>
+    <text class="text small muted" x="58" y="422">[photo] 付款截图</text>
+    <rect class="panel" x="340" y="150" width="704" height="400" rx="6"/>
+    <text class="text h3" x="360" y="186">对话详情：用户A / @service_bot</text>
+    <rect class="softBlue" x="360" y="214" width="320" height="52" rx="6"/>
+    <text class="text body" x="374" y="247">用户：你好，请问套餐价格？</text>
+    <rect class="softGreen" x="560" y="284" width="400" height="52" rx="6"/>
+    <text class="text body" x="574" y="317">Bot：请选择套餐类型，下方有详情按钮。</text>
+    <rect class="mutedPanel" x="360" y="354" width="640" height="62" rx="6"/>
+    <text class="text small" x="374" y="380">回复内容：文本 + 图片/视频/文件 + Inline 按钮</text>
+    <text class="text small muted" x="374" y="404">附件：[+图片] [+视频] [+文件]  状态：[自动回复 v]</text>
+    <rect class="primary" x="360" y="440" width="74" height="32" rx="5"/><text class="white btnText" x="381" y="462">发送</text>
+    <rect class="softAmber" x="452" y="440" width="102" height="32" rx="5"/><text class="text btnText" x="468" y="462">人工接管</text>
+    <rect class="softRed" x="570" y="440" width="74" height="32" rx="5"/><text class="text btnText" x="589" y="462">拉黑</text>
+    <text class="text small muted" x="360" y="520">交互：点击会话 -> 查看上下文 -> 选择状态 -> 手动回复或接管</text>
+    <text class="text label" x="0" y="-26">3. 消息中心：客服会话、人工接管、图片视频回复</text>
+  </g>
+
+  <!-- 4 Auto replies and templates -->
+  <g transform="translate(1240,820)">
+    <rect class="screen" x="0" y="0" width="1080" height="600" rx="6"/>
+    <rect class="top" x="0" y="0" width="1080" height="56" rx="6"/>
+    <text class="white h3" x="24" y="37">自动回复与消息模板</text>
+    <rect class="primary" x="910" y="14" width="118" height="30" rx="5"/>
+    <text class="white btnText" x="928" y="35">+ 新建规则</text>
+    <text class="text body" x="40" y="96">机器人 [客服Bot v]</text>
+    <rect class="panel" x="40" y="120" width="650" height="260" rx="6"/>
+    <text class="text h3" x="62" y="156">规则列表</text>
+    <text class="text small muted" x="62" y="194">启用</text><text class="text small muted" x="140" y="194">类型</text><text class="text small muted" x="250" y="194">触发词</text><text class="text small muted" x="390" y="194">模板</text><text class="text small muted" x="540" y="194">操作</text>
+    <line class="line" x1="62" y1="210" x2="668" y2="210"/>
+    <text class="text body" x="62" y="246">ON</text><text class="text body" x="140" y="246">命令</text><text class="text body" x="250" y="246">/start</text><text class="text body" x="390" y="246">欢迎模板</text><text class="text body" x="540" y="246">编辑 删除</text>
+    <text class="text body" x="62" y="292">ON</text><text class="text body" x="140" y="292">关键词</text><text class="text body" x="250" y="292">价格</text><text class="text body" x="390" y="292">价格图文</text><text class="text body" x="540" y="292">编辑 删除</text>
+    <text class="text body" x="62" y="338">ON</text><text class="text body" x="140" y="338">回调</text><text class="text body" x="250" y="338">contact_support</text><text class="text body" x="390" y="338">人工客服</text><text class="text body" x="540" y="338">编辑 删除</text>
+    <rect class="panel" x="720" y="120" width="320" height="430" rx="6"/>
+    <text class="text h3" x="742" y="156">规则编辑</text>
+    <text class="text small muted" x="742" y="194">类型 [关键词 v]</text>
+    <text class="text small muted" x="742" y="228">触发词 [价格]</text>
+    <text class="text small muted" x="742" y="262">匹配 [包含 v]</text>
+    <text class="text small muted" x="742" y="296">回复模板 [价格图文 v]</text>
+    <rect class="mutedPanel" x="742" y="318" width="278" height="112" rx="6"/>
+    <text class="text small" x="760" y="348">模板：文本 + 图片 + 按钮</text>
+    <text class="text small muted" x="760" y="378">媒体：price.png</text>
+    <text class="text small muted" x="760" y="408">按钮：[查看详情] [客服]</text>
+    <rect class="primary" x="742" y="458" width="78" height="32" rx="5"/>
+    <text class="white btnText" x="761" y="480">保存</text>
+    <rect class="panel" x="40" y="410" width="650" height="140" rx="6"/>
+    <text class="text h3" x="62" y="446">消息处理优先级</text>
+    <text class="text body" x="62" y="486">命令规则 -> 关键词规则 -> 回调事件 -> AI 回复 -> 默认回复</text>
+    <text class="text small muted" x="62" y="520">收到消息先入库，再执行规则和 AI，避免“服务端收到但页面不显示”。</text>
+    <text class="text label" x="0" y="-26">4. 自动回复：规则引用模板，支持图文视频和按钮</text>
+  </g>
+
+  <!-- 5 Menu buttons -->
+  <g transform="translate(80,1480)">
+    <rect class="screen" x="0" y="0" width="1080" height="600" rx="6"/>
+    <rect class="top" x="0" y="0" width="1080" height="56" rx="6"/>
+    <text class="white h3" x="24" y="37">菜单按钮</text>
+    <text class="text body" x="40" y="96">机器人 [客服Bot v]</text>
+    <rect class="panel" x="40" y="124" width="480" height="390" rx="6"/>
+    <text class="text h3" x="62" y="160">欢迎消息 Inline 按钮</text>
+    <text class="text small muted" x="62" y="194">用于 /start 或自动回复消息下方按钮</text>
+    <rect class="mutedPanel" x="62" y="222" width="396" height="150" rx="6"/>
+    <rect class="softBlue" x="84" y="250" width="126" height="38" rx="5"/><text class="text btnText" x="106" y="275">联系客服</text>
+    <rect class="softBlue" x="226" y="250" width="126" height="38" rx="5"/><text class="text btnText" x="248" y="275">进入频道</text>
+    <rect class="softBlue" x="84" y="306" width="126" height="38" rx="5"/><text class="text btnText" x="106" y="331">打开官网</text>
+    <text class="text small" x="62" y="408">动作类型：url / command / callback / text</text>
+    <rect class="primary" x="62" y="440" width="90" height="32" rx="5"/><text class="white btnText" x="78" y="462">添加按钮</text>
+    <rect class="softBlue" x="170" y="440" width="74" height="32" rx="5"/><text class="text btnText" x="189" y="462">保存</text>
+    <rect class="panel" x="560" y="124" width="480" height="390" rx="6"/>
+    <text class="text h3" x="582" y="160">底部菜单 Reply Keyboard</text>
+    <text class="text small muted" x="582" y="194">长期显示在 Telegram 输入框下方</text>
+    <rect class="mutedPanel" x="582" y="222" width="396" height="150" rx="6"/>
+    <rect class="softGreen" x="604" y="250" width="126" height="38" rx="5"/><text class="text btnText" x="626" y="275">联系客服</text>
+    <rect class="softGreen" x="746" y="250" width="126" height="38" rx="5"/><text class="text btnText" x="768" y="275">常见问题</text>
+    <rect class="softGreen" x="604" y="306" width="126" height="38" rx="5"/><text class="text btnText" x="626" y="331">价格咨询</text>
+    <rect class="softGreen" x="746" y="306" width="126" height="38" rx="5"/><text class="text btnText" x="768" y="331">返回首页</text>
+    <text class="text small" x="582" y="408">点击后发送文本，再走自动回复规则。</text>
+    <rect class="primary" x="582" y="440" width="90" height="32" rx="5"/><text class="white btnText" x="598" y="462">添加按钮</text>
+    <rect class="softBlue" x="690" y="440" width="74" height="32" rx="5"/><text class="text btnText" x="709" y="462">保存</text>
+    <text class="text small muted" x="40" y="554">交互：按钮可排序、多行多列；URL 直接跳转，callback 触发后台事件，text/command 进入规则处理。</text>
+    <text class="text label" x="0" y="-26">5. 菜单按钮：跳转、命令、回调、底部菜单</text>
+  </g>
+
+  <!-- 6 AI settings and manual takeover -->
+  <g transform="translate(1240,1480)">
+    <rect class="screen" x="0" y="0" width="1080" height="600" rx="6"/>
+    <rect class="top" x="0" y="0" width="1080" height="56" rx="6"/>
+    <text class="white h3" x="24" y="37">AI 设置与客服接管</text>
+    <rect class="panel" x="40" y="92" width="488" height="420" rx="6"/>
+    <text class="text h3" x="62" y="130">AI 配置：客服Bot</text>
+    <text class="text body" x="62" y="170">AI 开关 [开启]</text>
+    <text class="text body" x="62" y="212">模型 [gpt-4.1-mini v]</text>
+    <text class="text body" x="62" y="254">温度 [0.4]  上下文 [10条]</text>
+    <text class="text small muted" x="62" y="294">System Prompt</text>
+    <rect class="mutedPanel" x="62" y="312" width="420" height="92" rx="6"/>
+    <text class="text small" x="78" y="342">你是专业客服助手，回答简洁、礼貌。</text>
+    <text class="text small" x="78" y="374">无法确认时引导用户联系人工客服。</text>
+    <rect class="primary" x="62" y="432" width="78" height="32" rx="5"/><text class="white btnText" x="81" y="454">保存</text>
+    <rect class="softBlue" x="158" y="432" width="86" height="32" rx="5"/><text class="text btnText" x="176" y="454">测试AI</text>
+    <rect class="panel" x="560" y="92" width="480" height="420" rx="6"/>
+    <text class="text h3" x="582" y="130">会话状态</text>
+    <rect class="softGreen" x="582" y="160" width="388" height="52" rx="6"/>
+    <text class="text body" x="602" y="193">自动回复：规则和 AI 都可自动响应</text>
+    <rect class="softAmber" x="582" y="232" width="388" height="52" rx="6"/>
+    <text class="text body" x="602" y="265">人工接管：只入库，不自动回复</text>
+    <rect class="softRed" x="582" y="304" width="388" height="52" rx="6"/>
+    <text class="text body" x="602" y="337">黑名单：记录消息，不回复不群发</text>
+    <text class="text small muted" x="582" y="396">消息中心可切换用户状态；群发默认排除黑名单。</text>
+    <path class="arrow" d="M250 540 L800 540"/>
+    <text class="text small muted" x="330" y="570">规则未命中 -> AI 回复；AI 失败 -> 默认回复</text>
+    <text class="text label" x="0" y="-26">6. AI 设置：每个机器人独立 Prompt，支持人工接管</text>
+  </g>
+
+  <!-- 7 Broadcast -->
+  <g transform="translate(80,2140)">
+    <rect class="screen" x="0" y="0" width="1080" height="600" rx="6"/>
+    <rect class="top" x="0" y="0" width="1080" height="56" rx="6"/>
+    <text class="white h3" x="24" y="37">群发管理</text>
+    <rect class="primary" x="910" y="14" width="118" height="30" rx="5"/>
+    <text class="white btnText" x="928" y="35">+ 新建群发</text>
+    <rect class="panel" x="40" y="92" width="470" height="220" rx="6"/>
+    <text class="text h3" x="62" y="130">群发任务</text>
+    <text class="text small muted" x="62" y="170">标题</text><text class="text small muted" x="210" y="170">机器人</text><text class="text small muted" x="330" y="170">状态</text><text class="text small muted" x="420" y="170">成功</text>
+    <line class="line" x1="62" y1="186" x2="492" y2="186"/>
+    <text class="text body" x="62" y="226">活动通知</text><text class="text body" x="210" y="226">客服Bot</text><text class="text body" x="330" y="226">完成</text><text class="text body" x="420" y="226">120/128</text>
+    <text class="text body" x="62" y="272">新菜单测试</text><text class="text body" x="210" y="272">AI助手</text><text class="text body" x="330" y="272">草稿</text><text class="text body" x="420" y="272">0/0</text>
+    <rect class="panel" x="540" y="92" width="500" height="470" rx="6"/>
+    <text class="text h3" x="562" y="130">新建群发</text>
+    <text class="text body" x="562" y="170">机器人 [客服Bot v]</text>
+    <text class="text body" x="562" y="212">接收对象 [全部正常用户 v]</text>
+    <text class="text body" x="562" y="254">内容类型 [文本 + 图片/视频 v]</text>
+    <rect class="mutedPanel" x="562" y="278" width="424" height="100" rx="6"/>
+    <text class="text small" x="582" y="310">本周活动已上线，点击查看详情。</text>
+    <text class="text small muted" x="582" y="344">附件：promo.mp4  按钮：[查看详情] [联系客服]</text>
+    <text class="text body" x="562" y="416">预估接收人数：128</text>
+    <text class="text small muted" x="562" y="450">限速：每秒 20 条；429 自动等待 retry_after。</text>
+    <rect class="softBlue" x="562" y="482" width="86" height="32" rx="5"/><text class="text btnText" x="580" y="504">保存草稿</text>
+    <rect class="softAmber" x="666" y="482" width="72" height="32" rx="5"/><text class="text btnText" x="686" y="504">预览</text>
+    <rect class="primary" x="756" y="482" width="98" height="32" rx="5"/><text class="white btnText" x="776" y="504">确认发送</text>
+    <text class="text small muted" x="40" y="552">交互：创建草稿 -> 预览 -> 确认 -> 后台队列限速发送 -> 记录成功/失败。</text>
+    <text class="text label" x="0" y="-26">7. 群发：文本、图片、视频、按钮、限速、失败日志</text>
+  </g>
+
+  <!-- 8 Diagnostics and logs -->
+  <g transform="translate(1240,2140)">
+    <rect class="screen" x="0" y="0" width="1080" height="600" rx="6"/>
+    <rect class="top" x="0" y="0" width="1080" height="56" rx="6"/>
+    <text class="white h3" x="24" y="37">诊断日志</text>
+    <rect class="primary" x="900" y="14" width="116" height="30" rx="5"/>
+    <text class="white btnText" x="918" y="35">开始诊断</text>
+    <rect class="panel" x="40" y="92" width="500" height="430" rx="6"/>
+    <text class="text h3" x="62" y="130">连接诊断：客服Bot</text>
+    <text class="text body" x="62" y="176">Token 状态：正常</text>
+    <text class="text body" x="62" y="218">Telegram API：可访问，280ms</text>
+    <text class="text body" x="62" y="260">Webhook：未设置</text>
+    <text class="text body" x="62" y="302">轮询状态：运行中</text>
+    <text class="text body" x="62" y="344">最近消息：2分钟前</text>
+    <text class="text body" x="62" y="386">最近错误：无</text>
+    <rect class="softBlue" x="62" y="426" width="104" height="32" rx="5"/><text class="text btnText" x="80" y="448">删除Webhook</text>
+    <rect class="softAmber" x="182" y="426" width="90" height="32" rx="5"/><text class="text btnText" x="200" y="448">重启轮询</text>
+    <rect class="panel" x="570" y="92" width="470" height="430" rx="6"/>
+    <text class="text h3" x="592" y="130">原始 Updates / 错误日志</text>
+    <rect class="mutedPanel" x="592" y="156" width="400" height="250" rx="6"/>
+    <text class="text mono" x="610" y="188">update_id: 123456</text>
+    <text class="text mono" x="610" y="222">message.text: "你好"</text>
+    <text class="text mono" x="610" y="256">handled: true</text>
+    <text class="text mono" x="610" y="300">update_id: 123457</text>
+    <text class="text mono" x="610" y="334">callback_data: contact_support</text>
+    <text class="text mono" x="610" y="368">handled: true</text>
+    <text class="text small muted" x="592" y="446">判断链路：raw_updates 有 -> messages 无 = 解析/入库问题。</text>
+    <text class="text small muted" x="592" y="480">messages 有 -> 页面无 = API/筛选/刷新问题。</text>
+    <text class="text label" x="0" y="-26">8. 诊断日志：一键检测 webhook、轮询、API、入库链路</text>
+  </g>
+
+  <!-- 9 Data model and flow -->
+  <g transform="translate(80,2800)">
+    <rect class="screen" x="0" y="0" width="2240" height="500" rx="6"/>
+    <text class="text label" x="0" y="-26">9. 全局业务逻辑：消息接收、回复、入库、群发、诊断闭环</text>
+    <text class="text h2" x="40" y="60">核心流程</text>
+    <rect class="softBlue" x="40" y="100" width="230" height="70" rx="6"/><text class="text body" x="66" y="142">Telegram Update</text>
+    <rect class="softGreen" x="330" y="100" width="230" height="70" rx="6"/><text class="text body" x="370" y="142">写 raw_updates</text>
+    <rect class="softGreen" x="620" y="100" width="230" height="70" rx="6"/><text class="text body" x="660" y="142">写 messages</text>
+    <rect class="softAmber" x="910" y="100" width="230" height="70" rx="6"/><text class="text body" x="944" y="142">匹配回复规则</text>
+    <rect class="softAmber" x="1200" y="100" width="230" height="70" rx="6"/><text class="text body" x="1254" y="142">AI 回复</text>
+    <rect class="softBlue" x="1490" y="100" width="230" height="70" rx="6"/><text class="text body" x="1536" y="142">发送回复</text>
+    <rect class="softGreen" x="1780" y="100" width="230" height="70" rx="6"/><text class="text body" x="1838" y="142">记录日志</text>
+    <path class="arrow" d="M270 135 L330 135"/><path class="arrow" d="M560 135 L620 135"/><path class="arrow" d="M850 135 L910 135"/><path class="arrow" d="M1140 135 L1200 135"/><path class="arrow" d="M1430 135 L1490 135"/><path class="arrow" d="M1720 135 L1780 135"/>
+    <text class="text h2" x="40" y="240">关键数据表</text>
+    <text class="text body" x="40" y="286">bots / chats / messages / raw_updates / reply_rules / message_templates / menus / broadcasts / broadcast_targets / bot_health_checks</text>
+    <text class="text h2" x="40" y="356">交互原则</text>
+    <text class="text body" x="40" y="404">所有收到的消息先入库；所有自动回复都引用模板；模板支持文本、图片、视频、文件、Inline 按钮；群发走队列限速；诊断能定位接收、入库、查询、前端显示问题。</text>
+  </g>
+</svg>
