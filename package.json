@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "node server/index.js",
     "start": "node server/index.js",
-    "check": "node scripts/check.js"
+    "check": "node scripts/check.js",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy",
+    "cf:migrate:local": "wrangler d1 migrations apply aitgbot --local",
+    "cf:migrate:remote": "wrangler d1 migrations apply aitgbot --remote"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

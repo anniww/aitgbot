@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aitgbot",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-06-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "AI_PROVIDER": "deepseek",
+    "AI_BASE_URL": "https://api.deepseek.com",
+    "AI_MODEL": "deepseek-v4-flash"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aitgbot",
+      "database_id": "a97e47d4-0d84-4b48-9a76-82c3c8cfb465"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "aitgbot-media"
+    }
+  ]
+}
