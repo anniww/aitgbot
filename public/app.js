@@ -22,6 +22,11 @@ const state = {
   messageSearch: '',
   modal: null,
   toast: '',
+  notification: null,
+  seenMessageIds: new Set(),
+  realtimeTimer: null,
+  realtimeBusy: false,
+  soundUnlocked: false,
   aiTestReply: '',
   ruleTestResult: null
 };
@@ -63,6 +68,7 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 document.addEventListener('click', async (event) => {
+  unlockNotificationSound();
   const modalButton = event.target.closest('[data-modal]');
   if (modalButton && state.modal !== modalButton.dataset.modal) {
     state.modal = modalButton.dataset.modal;
@@ -104,7 +110,10 @@ boot();
 
 async function boot() {
   render();
-  if (state.password) await refreshAll();
+  if (state.password) {
+    await refreshAll();
+    startRealtime();
+  }
 }
 
 async function api(path, options = {}) {
@@ -149,6 +158,7 @@ async function refreshAll() {
     state.deploymentReadiness = deploymentReadiness;
     if (!state.selectedBotId && bots[0]) state.selectedBotId = bots[0].id;
     await refreshScoped();
+    rememberMessages(state.messages);
     render();
   } catch (error) {
     notify(error.message);
@@ -176,6 +186,87 @@ async function refreshMessages() {
   state.messages = await api(`/api/messages?${params.toString()}`);
 }
 
+function startRealtime() {
+  stopRealtime();
+  state.realtimeTimer = window.setInterval(checkRealtimeUpdates, 3000);
+}
+
+function stopRealtime() {
+  if (state.realtimeTimer) window.clearInterval(state.realtimeTimer);
+  state.realtimeTimer = null;
+}
+
+async function checkRealtimeUpdates() {
+  if (!state.password || state.realtimeBusy) return;
+  state.realtimeBusy = true;
+  try {
+    const [dashboard, chats, logs] = await Promise.all([
+      api('/api/dashboard'),
+      api('/api/chats'),
+      api('/api/system-logs')
+    ]);
+    state.dashboard = dashboard;
+    state.chats = chats;
+    state.logs = logs;
+    if (state.selectedBotId) {
+      const previousIds = new Set(state.seenMessageIds);
+      await refreshMessages();
+      const newUserMessages = state.messages.filter((message) => message.role === 'user' && !previousIds.has(message.id));
+      rememberMessages(state.messages);
+      if (newUserMessages.length) {
+        const latest = newUserMessages[newUserMessages.length - 1];
+        showIncomingNotice(latest, newUserMessages.length);
+      }
+    }
+    render();
+  } catch {
+    // Keep realtime quiet during transient network or auth refresh issues.
+  } finally {
+    state.realtimeBusy = false;
+  }
+}
+
+function rememberMessages(messages = []) {
+  messages.forEach((message) => state.seenMessageIds.add(message.id));
+  if (state.seenMessageIds.size > 1000) {
+    state.seenMessageIds = new Set(Array.from(state.seenMessageIds).slice(-500));
+  }
+}
+
+function showIncomingNotice(message, count) {
+  const chat = state.chats.find((item) => String(item.chatId) === String(message.chatId));
+  const sender = chat?.username ? `@${chat.username}` : chat?.firstName || message.chatId;
+  const text = message.content || `[${message.mediaType || 'message'}]`;
+  state.notification = {
+    title: count > 1 ? `${count} new messages` : 'New message',
+    body: `${sender}: ${text}`.slice(0, 140)
+  };
+  notify(state.notification.body, 5000);
+  playNotificationSound();
+}
+
+function playNotificationSound() {
+  if (!state.soundUnlocked) return;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.22);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.24);
+  } catch {
+    // Audio can be blocked by the browser until the user interacts.
+  }
+}
+
 function render() {
   if (!state.password) {
     app.innerHTML = loginView();
@@ -190,7 +281,7 @@ function render() {
           <div class="top-subtitle">Telegram Operations Console</div>
         </div>
         <div class="top-actions">
-          <span>Local MVP</span>
+          <span class="live-indicator"><span class="live-dot"></span>Live</span>
           <button data-action="refresh">Refresh</button>
           <button data-action="logout">Logout</button>
         </div>
@@ -209,11 +300,21 @@ function render() {
       </aside>
       <main class="content">${pageView()}</main>
     </div>
+    ${state.notification ? notificationView() : ''}
     ${state.modal ? modalView(state.modal) : ''}
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ''}
   `;
   bindCommon();
   bindPage();
+}
+
+function notificationView() {
+  return `
+    <button class="incoming-notice" data-action="open-latest-message">
+      <strong>${escapeHtml(state.notification.title)}</strong>
+      <span>${escapeHtml(state.notification.body)}</span>
+    </button>
+  `;
 }
 
 function currentPageLabel() {
@@ -1153,6 +1254,7 @@ function bindLogin() {
     state.password = document.querySelector('#passwordInput').value;
     localStorage.setItem('tg_admin_password', state.password);
     await refreshAll();
+    startRealtime();
   });
 }
 
@@ -1166,8 +1268,16 @@ function bindCommon() {
   });
   document.querySelector('[data-action="refresh"]')?.addEventListener('click', refreshAll);
   document.querySelector('[data-action="logout"]')?.addEventListener('click', () => {
+    stopRealtime();
     localStorage.removeItem('tg_admin_password');
     state.password = '';
+    state.notification = null;
+    render();
+  });
+  document.querySelector('[data-action="open-latest-message"]')?.addEventListener('click', async () => {
+    state.page = 'messages';
+    state.notification = null;
+    await refreshScoped().catch(() => {});
     render();
   });
   document.querySelectorAll('[data-modal]').forEach((button) => {
@@ -1184,6 +1294,10 @@ function bindCommon() {
     await refreshScoped();
     render();
   });
+}
+
+function unlockNotificationSound() {
+  state.soundUnlocked = true;
 }
 
 function bindPage() {

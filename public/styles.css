@@ -207,6 +207,20 @@ textarea {
   font-size: 12px;
 }
 
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #16a34a;
+  box-shadow: 0 0 0 5px rgba(22, 163, 74, .12);
+}
+
 .top-actions button {
   border-color: var(--line);
   background: #fff;
@@ -1063,6 +1077,34 @@ label {
   padding: 12px 14px;
   box-shadow: 0 16px 40px rgba(15, 23, 42, .22);
   z-index: 60;
+}
+
+.incoming-notice {
+  position: fixed;
+  right: 20px;
+  top: 78px;
+  z-index: 58;
+  display: grid;
+  gap: 3px;
+  width: min(420px, calc(100vw - 40px));
+  border: 1px solid #bae6fd;
+  border-left: 4px solid var(--cyan);
+  border-radius: 8px;
+  background: #f0f9ff;
+  color: var(--primary-dark);
+  padding: 12px 14px;
+  text-align: left;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .18);
+}
+
+.incoming-notice strong {
+  font-size: 13px;
+}
+
+.incoming-notice span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .button-editor {

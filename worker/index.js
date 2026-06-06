@@ -406,7 +406,11 @@ async function botAction(request, env, botId, action) {
     return json(await telegramApi(bot.token, 'deleteWebhook', { drop_pending_updates: false }));
   }
   if (action === 'test-ai' && request.method === 'POST') {
-    return json({ reply: 'AI test on Cloudflare will be enabled after chat-completions migration.' });
+    const bot = await getBot(env, botId);
+    if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+    const body = await readJson(request);
+    const reply = await generateAiReply(env, bot, body.text || 'Hello');
+    return json({ reply });
   }
   return json({ error: 'NOT_FOUND' }, { status: 404 });
 }
@@ -1176,6 +1180,24 @@ async function handleIncomingMessage(env, bot, message) {
     }
   }
 
+  if (bot.aiEnabled) {
+    try {
+      const aiText = await generateAiReply(env, bot, textValue, chatId);
+      if (aiText) {
+        await sendBotText(env, bot, chatId, aiText, null, 'ai');
+        return;
+      }
+    } catch (error) {
+      await createSystemLog(env, {
+        level: 'error',
+        action: 'ai_reply_failed',
+        message: error.message || 'AI reply failed',
+        botId: bot.id,
+        entityId: chatId
+      });
+    }
+  }
+
   if (bot.defaultReply) await sendBotText(env, bot, chatId, bot.defaultReply, null, 'default');
 }
 
@@ -1271,6 +1293,48 @@ async function sendBotText(env, bot, chatId, textValue, replyMarkup, source) {
     content: textValue,
     source
   });
+}
+
+async function generateAiReply(env, bot, textValue, chatId = '') {
+  const active = resolveAiConfig(env, await getStoredAiConfig(env));
+  if (!active.apiKey) throw new Error('AI_API_KEY_REQUIRED');
+  if (!bot.aiEnabled && chatId) return '';
+  const history = chatId ? await listMessages(env, new URLSearchParams(`botId=${encodeURIComponent(bot.id)}&chatId=${encodeURIComponent(chatId)}`)) : [];
+  const limit = Number(bot.aiContextLimit || 10);
+  const messages = [
+    { role: 'system', content: bot.aiPrompt || 'You are a professional customer support assistant. Keep replies concise and polite.' },
+    ...history
+      .filter((item) => item.role === 'user' || item.role === 'bot')
+      .slice(-limit)
+      .map((item) => ({
+        role: item.role === 'user' ? 'user' : 'assistant',
+        content: item.content || `[${item.mediaType || 'media'}]`
+      })),
+    { role: 'user', content: textValue || '' }
+  ];
+  const model = resolveAiModel(bot.aiModel, active);
+  const response = await fetch(`${active.baseURL.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${active.apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.4
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error?.message || data.message || `AI request failed: ${response.status}`);
+  return data.choices?.[0]?.message?.content?.trim() || '';
+}
+
+function resolveAiModel(botModel, active) {
+  if (!botModel) return active.model;
+  if (active.provider === 'deepseek' && botModel.startsWith('gpt-')) return active.model;
+  if (active.provider === 'openai' && botModel.startsWith('deepseek-')) return active.model;
+  return botModel;
 }
 
 async function findMatchingRule(env, botId, textValue) {
