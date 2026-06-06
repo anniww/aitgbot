@@ -1,3 +1,18 @@
+const providers = {
+  openai: {
+    baseURL: 'https://api.openai.com/v1',
+    model: 'gpt-4.1-mini'
+  },
+  deepseek: {
+    baseURL: 'https://api.deepseek.com',
+    model: 'deepseek-v4-flash'
+  },
+  custom: {
+    baseURL: 'https://api.openai.com/v1',
+    model: 'gpt-4.1-mini'
+  }
+};
+
 const json = (data, init = {}) =>
   new Response(JSON.stringify(data), {
     ...init,
@@ -22,45 +37,982 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    if (url.pathname === '/api/health') {
-      return json({
-        ok: true,
-        runtime: 'cloudflare-workers',
-        storage: {
-          d1: Boolean(env.DB),
-          r2: Boolean(env.MEDIA_BUCKET)
-        },
-        ai: {
-          provider: env.AI_PROVIDER || 'deepseek',
-          baseURL: env.AI_BASE_URL || 'https://api.deepseek.com',
-          model: env.AI_MODEL || 'deepseek-v4-flash',
-          hasApiKey: Boolean(env.AI_API_KEY)
-        }
-      });
-    }
-
-    if (url.pathname === '/api/bootstrap') {
-      return json({ needsPassword: true, runtime: 'cloudflare' });
-    }
-
-    if (url.pathname === '/api/telegram/webhook') {
-      return handleTelegramWebhook(request, env, ctx);
-    }
+    if (url.pathname === '/api/health') return health(env);
+    if (url.pathname === '/api/bootstrap') return json({ needsPassword: true, runtime: 'cloudflare' });
+    if (url.pathname === '/api/telegram/webhook') return handleTelegramWebhook(request, env, ctx);
 
     if (url.pathname.startsWith('/api/')) {
-      return json(
-        {
-          error: 'CLOUDFLARE_API_NOT_MIGRATED',
-          message: 'This Worker is deployed. The full admin API still needs D1/R2 migration from the local Express server.'
-        },
-        { status: 501 }
-      );
+      const auth = requireAdmin(request, env);
+      if (auth) return auth;
+      return routeApi(request, env, ctx, url);
     }
 
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return text('TG Bot Admin Worker is running.');
   }
 };
+
+async function routeApi(request, env, ctx, url) {
+  try {
+    if (url.pathname === '/api/dashboard' && request.method === 'GET') return getDashboard(env);
+    if (url.pathname === '/api/system-status' && request.method === 'GET') return getSystemStatus(env);
+    if (url.pathname === '/api/deployment-readiness' && request.method === 'GET') return getDeploymentReadiness(env);
+    if (url.pathname === '/api/system-logs' && request.method === 'GET') return json(await listSystemLogs(env));
+    if (url.pathname === '/api/export' && request.method === 'GET') return exportData(env);
+    if (url.pathname === '/api/import' && request.method === 'POST') return json({ error: 'CLOUDFLARE_IMPORT_NOT_READY' }, { status: 501 });
+    if (url.pathname === '/api/ai-config' && request.method === 'GET') return getAiConfigResponse(env);
+    if (url.pathname === '/api/ai-config' && request.method === 'PUT') return updateAiConfig(request, env);
+
+    if (url.pathname === '/api/bots' && request.method === 'GET') return json((await listBots(env)).map(publicBot));
+    if (url.pathname === '/api/bots' && request.method === 'POST') return createBot(request, env);
+    if (url.pathname === '/api/bots/test-token' && request.method === 'POST') return testToken(request);
+
+    const botMatch = url.pathname.match(/^\/api\/bots\/([^/]+)(?:\/([^/]+))?$/);
+    if (botMatch) return botAction(request, env, botMatch[1], botMatch[2] || '');
+
+    if (url.pathname === '/api/chats' && request.method === 'GET') return json(await listChats(env, url.searchParams));
+    if (url.pathname === '/api/chats/test' && request.method === 'POST') return createTestChat(request, env);
+    const chatMatch = url.pathname.match(/^\/api\/chats\/([^/]+)$/);
+    if (chatMatch && request.method === 'PUT') return updateChat(request, env, chatMatch[1]);
+
+    if (url.pathname === '/api/media' && request.method === 'GET') return json([]);
+    if (url.pathname === '/api/broadcasts' && request.method === 'GET') return json(await listBroadcasts(env));
+    if (url.pathname === '/api/broadcasts' && request.method === 'POST') return createBroadcast(request, env);
+    const broadcastMatch = url.pathname.match(/^\/api\/broadcasts\/([^/]+)(?:\/([^/]+))?$/);
+    if (broadcastMatch) return broadcastAction(request, env, broadcastMatch[1], broadcastMatch[2] || '');
+
+    if (url.pathname === '/api/messages' && request.method === 'GET') return json(await listMessages(env, url.searchParams));
+    if (url.pathname === '/api/messages/note' && request.method === 'POST') return createInternalNote(request, env);
+    if (url.pathname === '/api/messages/send' && request.method === 'POST') return sendManualMessage(request, env);
+
+    if (url.pathname === '/api/templates' && request.method === 'GET') return json(await listTemplates(env, url.searchParams.get('botId')));
+    if (url.pathname === '/api/templates' && request.method === 'POST') return createTemplate(request, env);
+    const templateMatch = url.pathname.match(/^\/api\/templates\/([^/]+)$/);
+    if (templateMatch) return templateAction(request, env, templateMatch[1]);
+
+    if (url.pathname === '/api/rules' && request.method === 'GET') return json(await listRules(env, url.searchParams.get('botId')));
+    if (url.pathname === '/api/rules' && request.method === 'POST') return createRule(request, env);
+    if (url.pathname === '/api/rules/test' && request.method === 'POST') return testRule(request, env);
+    const ruleMatch = url.pathname.match(/^\/api\/rules\/([^/]+)$/);
+    if (ruleMatch) return ruleAction(request, env, ruleMatch[1]);
+
+    if (url.pathname === '/api/menus' && request.method === 'GET') {
+      return json(await getMenus(env, url.searchParams.get('botId')));
+    }
+
+    const menusMatch = url.pathname.match(/^\/api\/menus\/([^/]+)$/);
+    if (menusMatch && request.method === 'PUT') return updateMenus(request, env, menusMatch[1]);
+
+    return json({ error: 'NOT_FOUND' }, { status: 404 });
+  } catch (error) {
+    await createSystemLog(env, { level: 'error', action: 'worker_error', message: error.message });
+    return json({ error: error.message || 'Internal server error' }, { status: 500 });
+  }
+}
+
+function requireAdmin(request, env) {
+  const password = env.ADMIN_PASSWORD || 'admin123';
+  const header = request.headers.get('x-admin-password') || '';
+  if (header === password) return null;
+  return json({ error: 'ADMIN_PASSWORD_REQUIRED' }, { status: 401 });
+}
+
+function health(env) {
+  const ai = resolveAiConfig(env);
+  return json({
+    ok: true,
+    runtime: 'cloudflare-workers',
+    storage: {
+      d1: Boolean(env.DB),
+      r2: Boolean(env.MEDIA_BUCKET)
+    },
+    ai: {
+      provider: ai.provider,
+      baseURL: ai.baseURL,
+      model: ai.model,
+      hasApiKey: Boolean(ai.apiKey)
+    }
+  });
+}
+
+async function getDashboard(env) {
+  const bots = await listBots(env);
+  const messages = await listMessages(env, new URLSearchParams());
+  const logs = await listSystemLogs(env, 50);
+  const today = new Date().toISOString().slice(0, 10);
+  const todayMessages = messages.filter((message) => message.createdAt?.startsWith(today) && message.role === 'user');
+  return json({
+    botCount: bots.length,
+    runningCount: bots.filter((bot) => bot.status === 'running').length,
+    unverifiedBotCount: bots.filter((bot) => !bot.tokenVerified).length,
+    todayMessages: todayMessages.length,
+    activeUsers: new Set(todayMessages.map((message) => `${message.botId}:${message.chatId}`)).size,
+    recentBots: bots.slice(-6).reverse().map(publicBot),
+    recentMessages: messages.slice(-10).reverse(),
+    recentIssues: logs.filter((log) => log.level === 'error' || log.level === 'warn').slice(0, 8)
+  });
+}
+
+function getSystemStatus(env) {
+  const ai = resolveAiConfig(env);
+  return json({
+    mode: 'cloudflare',
+    nodeVersion: 'workers-runtime',
+    port: 443,
+    adminPassword: {
+      configured: Boolean(env.ADMIN_PASSWORD),
+      usingDefault: !env.ADMIN_PASSWORD
+    },
+    ai: {
+      enabled: Boolean(ai.apiKey),
+      provider: ai.provider,
+      baseURLConfigured: Boolean(env.AI_BASE_URL),
+      baseURL: ai.baseURL,
+      model: ai.model
+    },
+    network: {
+      proxyConfigured: false
+    },
+    storage: {
+      dataFile: 'Cloudflare D1',
+      dataFileExists: Boolean(env.DB),
+      dataFileBytes: 0,
+      uploadDir: 'Cloudflare R2',
+      uploadFileCount: 0,
+      uploadBytes: 0
+    },
+    deployment: {
+      current: 'Cloudflare Workers + D1 + R2',
+      planned: 'Telegram webhook production runtime'
+    }
+  });
+}
+
+async function getDeploymentReadiness(env) {
+  const bots = await listBots(env);
+  const logs = await listSystemLogs(env, 50);
+  const ai = resolveAiConfig(env);
+  const checks = [
+    {
+      key: 'admin-password',
+      label: 'Admin password',
+      status: env.ADMIN_PASSWORD ? 'pass' : 'warning',
+      detail: env.ADMIN_PASSWORD ? 'ADMIN_PASSWORD secret is configured.' : 'Set ADMIN_PASSWORD as a Cloudflare secret before production use.'
+    },
+    {
+      key: 'bot-tokens',
+      label: 'Bot tokens',
+      status: bots.some((bot) => !bot.tokenVerified) ? 'warning' : 'pass',
+      detail: bots.some((bot) => !bot.tokenVerified) ? 'Some bot tokens still need verification.' : 'All saved bot tokens are verified.'
+    },
+    {
+      key: 'runtime-mode',
+      label: 'Runtime mode',
+      status: 'pass',
+      detail: 'Cloudflare uses webhook mode instead of local polling.'
+    },
+    {
+      key: 'ai-config',
+      label: 'AI configuration',
+      status: bots.some((bot) => bot.aiEnabled) && !ai.apiKey ? 'warning' : 'pass',
+      detail: bots.some((bot) => bot.aiEnabled) && !ai.apiKey ? 'AI is enabled for at least one bot but API key is missing.' : 'AI settings are compatible with current bot settings.'
+    },
+    {
+      key: 'data-backup',
+      label: 'Data backup',
+      status: 'pass',
+      detail: 'D1 is available for Cloudflare data storage.'
+    },
+    {
+      key: 'media-storage',
+      label: 'Media storage',
+      status: env.MEDIA_BUCKET ? 'pass' : 'warning',
+      detail: env.MEDIA_BUCKET ? 'R2 bucket is bound.' : 'R2 bucket binding is missing.'
+    },
+    {
+      key: 'recent-errors',
+      label: 'Recent errors',
+      status: logs.some((log) => log.level === 'error') ? 'warning' : 'pass',
+      detail: logs.some((log) => log.level === 'error') ? 'Recent error logs found.' : 'No recent error logs.'
+    }
+  ];
+  const warningCount = checks.filter((check) => check.status === 'warning').length;
+  return json({
+    ready: warningCount === 0,
+    warningCount,
+    generatedAt: new Date().toISOString(),
+    nextTarget: 'Configure secrets and Telegram webhook',
+    checks
+  });
+}
+
+async function getAiConfigResponse(env) {
+  const saved = await getStoredAiConfig(env);
+  const ai = resolveAiConfig(env, saved);
+  return json({
+    provider: ai.provider,
+    baseURL: ai.baseURL,
+    apiKeyMasked: maskSecret(ai.apiKey),
+    hasApiKey: Boolean(ai.apiKey),
+    model: ai.model,
+    source: saved?.apiKey ? 'd1' : 'env'
+  });
+}
+
+async function updateAiConfig(request, env) {
+  const body = await readJson(request);
+  const current = resolveAiConfig(env, await getStoredAiConfig(env));
+  const apiKey = typeof body.apiKey === 'string' && body.apiKey.trim() ? body.apiKey.trim() : body.clearApiKey ? '' : current.apiKey;
+  const provider = body.provider || current.provider || 'deepseek';
+  const defaults = providers[provider] || providers.custom;
+  const baseURL = body.baseURL || defaults.baseURL;
+  const model = body.model || defaults.model;
+  await env.DB.prepare(
+    `INSERT INTO ai_config (id, provider, base_url, api_key, model, updated_at)
+     VALUES ('default', ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, updated_at=excluded.updated_at`
+  )
+    .bind(provider, baseURL, apiKey, model, new Date().toISOString())
+    .run();
+  await createSystemLog(env, { level: 'warn', action: 'ai_config_updated', message: 'AI API configuration updated in D1' });
+  return getAiConfigResponse(env);
+}
+
+async function createBot(request, env) {
+  const body = await readJson(request);
+  const skipTokenTest = body.skipTokenTest === true || body.skipTokenTest === 'true';
+  const info = skipTokenTest ? {} : await telegramGetMe(body.token);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const ai = resolveAiConfig(env, await getStoredAiConfig(env));
+  const bot = {
+    id,
+    name: body.name || info.first_name || info.username || 'Unnamed Bot',
+    username: info.username || '',
+    token: body.token,
+    status: 'stopped',
+    welcomeMessage: body.welcomeMessage || 'Welcome. Please choose an option below.',
+    defaultReply: body.defaultReply || 'Message received. Support will reply soon.',
+    aiEnabled: false,
+    aiPrompt: 'You are a professional customer support assistant. Keep replies concise and polite.',
+    aiModel: ai.model,
+    aiContextLimit: 10,
+    tokenVerified: !skipTokenTest,
+    createdAt: now,
+    updatedAt: now
+  };
+  await env.DB.prepare(
+    `INSERT INTO bots (id, name, username, token, status, welcome_message, default_reply, ai_enabled, ai_prompt, ai_model, ai_context_limit, token_verified, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      bot.id,
+      bot.name,
+      bot.username,
+      bot.token,
+      bot.status,
+      bot.welcomeMessage,
+      bot.defaultReply,
+      bot.aiEnabled ? 1 : 0,
+      bot.aiPrompt,
+      bot.aiModel,
+      bot.aiContextLimit,
+      bot.tokenVerified ? 1 : 0,
+      bot.createdAt,
+      bot.updatedAt
+    )
+    .run();
+  await updateMenusRows(env, id, defaultMenus());
+  await createSystemLog(env, {
+    level: skipTokenTest ? 'warn' : 'info',
+    action: 'bot_created',
+    message: skipTokenTest ? 'Bot created without token verification' : 'Bot created and token verified',
+    botId: id,
+    entityId: id
+  });
+  return json(publicBot(bot));
+}
+
+async function botAction(request, env, botId, action) {
+  if (!action && request.method === 'PUT') return updateBot(request, env, botId);
+  if (!action && request.method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM bots WHERE id = ?').bind(botId).run();
+    await createSystemLog(env, { level: 'warn', action: 'bot_deleted', message: 'Bot deleted', botId, entityId: botId });
+    return json({ ok: true });
+  }
+  if (action === 'verify-token' && request.method === 'POST') {
+    const bot = await getBot(env, botId);
+    if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+    const info = await telegramGetMe(bot.token);
+    await env.DB.prepare('UPDATE bots SET username = ?, token_verified = 1, updated_at = ? WHERE id = ?')
+      .bind(info.username || '', new Date().toISOString(), botId)
+      .run();
+    return json(publicBot({ ...(await getBot(env, botId)), tokenVerified: true }));
+  }
+  if ((action === 'start' || action === 'stop') && request.method === 'POST') {
+    return json({
+      botId,
+      status: 'stopped',
+      startedAt: '',
+      lastUpdateAt: '',
+      lastError: 'Cloudflare deployment uses Telegram webhook mode, not local polling.'
+    });
+  }
+  if (action === 'diagnostics' && request.method === 'GET') {
+    const bot = await getBot(env, botId);
+    if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+    const started = Date.now();
+    const me = await telegramGetMe(bot.token);
+    const webhook = await telegramApi(bot.token, 'getWebhookInfo');
+    return json({
+      tokenOk: Boolean(me?.id),
+      bot: me,
+      apiReachable: true,
+      apiLatencyMs: Date.now() - started,
+      webhookUrl: webhook?.url || '',
+      webhook,
+      polling: { botId, status: 'webhook', startedAt: '', lastUpdateAt: '', lastError: '' },
+      lastRawUpdates: [],
+      lastSendLogs: []
+    });
+  }
+  if (action === 'delete-webhook' && request.method === 'POST') {
+    const bot = await getBot(env, botId);
+    if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+    return json(await telegramApi(bot.token, 'deleteWebhook', { drop_pending_updates: false }));
+  }
+  if (action === 'test-ai' && request.method === 'POST') {
+    return json({ reply: 'AI test on Cloudflare will be enabled after chat-completions migration.' });
+  }
+  return json({ error: 'NOT_FOUND' }, { status: 404 });
+}
+
+async function updateBot(request, env, botId) {
+  const body = await readJson(request);
+  const existing = await getBot(env, botId);
+  if (!existing) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+  const merged = { ...existing, ...body, updatedAt: new Date().toISOString() };
+  await env.DB.prepare(
+    `UPDATE bots SET name=?, token=COALESCE(NULLIF(?, ''), token), welcome_message=?, default_reply=?, ai_enabled=?, ai_prompt=?, ai_model=?, ai_context_limit=?, updated_at=? WHERE id=?`
+  )
+    .bind(
+      merged.name || existing.name,
+      body.token || '',
+      merged.welcomeMessage || '',
+      merged.defaultReply || '',
+      merged.aiEnabled ? 1 : 0,
+      merged.aiPrompt || '',
+      merged.aiModel || '',
+      Number(merged.aiContextLimit || 10),
+      merged.updatedAt,
+      botId
+    )
+    .run();
+  return json(publicBot(await getBot(env, botId)));
+}
+
+async function testToken(request) {
+  const body = await readJson(request);
+  return json(await telegramGetMe(body.token));
+}
+
+async function listBots(env) {
+  const { results } = await env.DB.prepare('SELECT * FROM bots ORDER BY created_at ASC').all();
+  return results.map(rowToBot);
+}
+
+async function getBot(env, botId) {
+  const row = await env.DB.prepare('SELECT * FROM bots WHERE id = ?').bind(botId).first();
+  return row ? rowToBot(row) : null;
+}
+
+function rowToBot(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    token: row.token,
+    status: row.status,
+    welcomeMessage: row.welcome_message,
+    defaultReply: row.default_reply,
+    aiEnabled: Boolean(row.ai_enabled),
+    aiPrompt: row.ai_prompt,
+    aiModel: row.ai_model,
+    aiContextLimit: Number(row.ai_context_limit || 10),
+    tokenVerified: Boolean(row.token_verified),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    runtime: { botId: row.id, status: 'webhook', startedAt: '', lastUpdateAt: '', lastError: '' }
+  };
+}
+
+function publicBot(bot) {
+  return {
+    ...bot,
+    token: maskToken(bot.token),
+    runtime: bot.runtime || { botId: bot.id, status: 'webhook', startedAt: '', lastUpdateAt: '', lastError: '' }
+  };
+}
+
+async function listChats(env, params) {
+  let sql = 'SELECT * FROM chats';
+  const binds = [];
+  if (params.get('botId')) {
+    sql += ' WHERE bot_id = ?';
+    binds.push(params.get('botId'));
+  }
+  sql += ' ORDER BY last_message_at DESC';
+  const { results } = await env.DB.prepare(sql).bind(...binds).all();
+  return results.map((row) => ({
+    id: row.id,
+    botId: row.bot_id,
+    chatId: row.chat_id,
+    username: row.username,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    type: row.type,
+    status: row.status,
+    lastMessageAt: row.last_message_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+}
+
+async function createTestChat(request, env) {
+  const body = await readJson(request);
+  if (!body.botId || !(await getBot(env, body.botId))) return json({ error: 'Select a valid bot first' }, { status: 400 });
+  const now = new Date().toISOString();
+  const chatId = body.chatId || `test_${Date.now()}`;
+  const chat = {
+    id: `${body.botId}:${chatId}`,
+    botId: body.botId,
+    chatId,
+    username: body.username || 'test_user',
+    firstName: body.firstName || 'Test',
+    lastName: body.lastName || 'User',
+    type: 'private',
+    status: 'auto',
+    lastMessageAt: now,
+    createdAt: now,
+    updatedAt: now
+  };
+  await env.DB.prepare(
+    `INSERT INTO chats (id, bot_id, chat_id, username, first_name, last_name, type, status, last_message_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(bot_id, chat_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, type=excluded.type, last_message_at=excluded.last_message_at, updated_at=excluded.updated_at`
+  )
+    .bind(chat.id, chat.botId, chat.chatId, chat.username, chat.firstName, chat.lastName, chat.type, chat.status, chat.lastMessageAt, chat.createdAt, chat.updatedAt)
+    .run();
+  const message = await insertMessage(env, {
+    botId: body.botId,
+    chatId,
+    role: 'user',
+    content: body.message || 'This is a Cloudflare test message.',
+    source: 'test'
+  });
+  await createSystemLog(env, { level: 'info', action: 'test_chat_created', message: 'Cloudflare test chat created', botId: body.botId, entityId: chatId });
+  return json({ chat, message });
+}
+
+async function updateChat(request, env, id) {
+  const body = await readJson(request);
+  const now = new Date().toISOString();
+  const existing = await env.DB.prepare('SELECT * FROM chats WHERE id = ?').bind(id).first();
+  if (!existing) return json({ error: 'CHAT_NOT_FOUND' }, { status: 404 });
+  await env.DB.prepare('UPDATE chats SET status = ?, updated_at = ? WHERE id = ?')
+    .bind(body.status || existing.status || 'auto', now, id)
+    .run();
+  const row = await env.DB.prepare('SELECT * FROM chats WHERE id = ?').bind(id).first();
+  return json({
+    id: row.id,
+    botId: row.bot_id,
+    chatId: row.chat_id,
+    username: row.username,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    type: row.type,
+    status: row.status,
+    lastMessageAt: row.last_message_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  });
+}
+
+async function listMessages(env, params) {
+  const botId = params.get('botId');
+  const chatId = params.get('chatId');
+  const binds = [];
+  let sql = 'SELECT * FROM messages';
+  const where = [];
+  if (botId) {
+    where.push('bot_id = ?');
+    binds.push(botId);
+  }
+  if (chatId) {
+    where.push('chat_id = ?');
+    binds.push(chatId);
+  }
+  if (where.length) sql += ` WHERE ${where.join(' AND ')}`;
+  sql += ' ORDER BY created_at ASC LIMIT 100';
+  const { results } = await env.DB.prepare(sql).bind(...binds).all();
+  return results.map((row) => ({
+    id: row.id,
+    botId: row.bot_id,
+    chatId: row.chat_id,
+    role: row.role,
+    content: row.content,
+    mediaType: row.media_type,
+    mediaPath: row.media_path,
+    telegramFileId: row.telegram_file_id,
+    source: row.source,
+    createdAt: row.created_at
+  }));
+}
+
+async function insertMessage(env, input) {
+  const message = {
+    id: crypto.randomUUID(),
+    botId: input.botId || '',
+    chatId: input.chatId || '',
+    role: input.role || 'admin',
+    content: input.content || '',
+    mediaType: input.mediaType || 'none',
+    mediaPath: input.mediaPath || '',
+    telegramFileId: input.telegramFileId || '',
+    source: input.source || 'manual',
+    createdAt: new Date().toISOString()
+  };
+  await env.DB.prepare(
+    `INSERT INTO messages (id, bot_id, chat_id, role, content, media_type, media_path, telegram_file_id, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(message.id, message.botId, message.chatId, message.role, message.content, message.mediaType, message.mediaPath, message.telegramFileId, message.source, message.createdAt)
+    .run();
+  return message;
+}
+
+async function createInternalNote(request, env) {
+  const body = await readJson(request);
+  if (!body.botId || !body.chatId) return json({ error: 'botId and chatId are required' }, { status: 400 });
+  const message = await insertMessage(env, {
+    botId: body.botId,
+    chatId: body.chatId,
+    role: 'admin',
+    content: body.text || '',
+    source: 'note'
+  });
+  await createSystemLog(env, { level: 'info', action: 'internal_note_saved', message: 'Internal note saved', botId: body.botId, entityId: body.chatId });
+  return json({ ok: true, message });
+}
+
+async function sendManualMessage(request, env) {
+  const form = await readForm(request);
+  if (!form.botId || !form.chatId) return json({ error: 'botId and chatId are required' }, { status: 400 });
+  const bot = await getBot(env, form.botId);
+  if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+  const textValue = form.text || '';
+  if (!textValue && form.mediaType === 'none') return json({ error: 'Message text or media is required' }, { status: 400 });
+  const message = await insertMessage(env, {
+    botId: form.botId,
+    chatId: form.chatId,
+    role: 'admin',
+    content: textValue,
+    mediaType: form.mediaType || 'none',
+    source: 'manual'
+  });
+  const payload = { chat_id: form.chatId, text: textValue || '(media message)' };
+  const result = await telegramApi(bot.token, 'sendMessage', payload);
+  await createSystemLog(env, { level: 'info', action: 'manual_message_sent', message: 'Manual message sent from Cloudflare', botId: form.botId, entityId: form.chatId });
+  return json({ ok: true, message, telegram: result });
+}
+
+async function listTemplates(env, botId) {
+  const query = botId ? env.DB.prepare('SELECT * FROM templates WHERE bot_id = ?').bind(botId) : env.DB.prepare('SELECT * FROM templates');
+  const { results } = await query.all();
+  return results.map((row) => ({
+    id: row.id,
+    botId: row.bot_id,
+    name: row.name,
+    text: row.text,
+    mediaType: row.media_type,
+    mediaPath: row.media_path,
+    telegramFileId: row.telegram_file_id,
+    buttons: safeJson(row.buttons, []),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+}
+
+async function createTemplate(request, env) {
+  const form = await readForm(request);
+  const now = new Date().toISOString();
+  const template = {
+    id: crypto.randomUUID(),
+    botId: form.botId || '',
+    name: form.name || 'Untitled template',
+    text: form.text || '',
+    mediaType: form.mediaType || 'none',
+    mediaPath: form.mediaPath || '',
+    telegramFileId: form.telegramFileId || '',
+    buttons: normalizeJsonText(form.buttonsJson, '[]'),
+    createdAt: now,
+    updatedAt: now
+  };
+  await env.DB.prepare(
+    `INSERT INTO templates (id, bot_id, name, text, media_type, media_path, telegram_file_id, buttons, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(template.id, template.botId, template.name, template.text, template.mediaType, template.mediaPath, template.telegramFileId, template.buttons, template.createdAt, template.updatedAt)
+    .run();
+  await createSystemLog(env, { level: 'info', action: 'template_created', message: 'Message template created', botId: template.botId, entityId: template.id });
+  return json({ ...template, buttons: safeJson(template.buttons, []) });
+}
+
+async function templateAction(request, env, id) {
+  if (request.method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM templates WHERE id = ?').bind(id).run();
+    await createSystemLog(env, { level: 'warn', action: 'template_deleted', message: 'Message template deleted', entityId: id });
+    return json({ ok: true });
+  }
+  if (request.method !== 'PUT') return json({ error: 'NOT_FOUND' }, { status: 404 });
+  const existing = await env.DB.prepare('SELECT * FROM templates WHERE id = ?').bind(id).first();
+  if (!existing) return json({ error: 'TEMPLATE_NOT_FOUND' }, { status: 404 });
+  const form = await readForm(request);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE templates SET bot_id=?, name=?, text=?, media_type=?, media_path=?, telegram_file_id=?, buttons=?, updated_at=? WHERE id=?`
+  )
+    .bind(
+      form.botId || existing.bot_id,
+      form.name || existing.name,
+      form.text ?? existing.text,
+      form.mediaType || existing.media_type,
+      form.mediaPath || existing.media_path,
+      form.telegramFileId || existing.telegram_file_id,
+      normalizeJsonText(form.buttonsJson || existing.buttons, '[]'),
+      now,
+      id
+    )
+    .run();
+  return json((await listTemplates(env)).find((template) => template.id === id));
+}
+
+async function listRules(env, botId) {
+  const query = botId ? env.DB.prepare('SELECT * FROM rules WHERE bot_id = ?').bind(botId) : env.DB.prepare('SELECT * FROM rules');
+  const { results } = await query.all();
+  return results.map((row) => ({
+    id: row.id,
+    botId: row.bot_id,
+    type: row.type,
+    pattern: row.pattern,
+    matchMode: row.match_mode,
+    templateId: row.template_id,
+    enabled: Boolean(row.enabled),
+    priority: row.priority,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+}
+
+async function createRule(request, env) {
+  const body = await readJson(request);
+  const now = new Date().toISOString();
+  const rule = {
+    id: crypto.randomUUID(),
+    botId: body.botId || '',
+    type: body.type || 'keyword',
+    pattern: body.pattern || '',
+    matchMode: body.matchMode || 'contains',
+    templateId: body.templateId || '',
+    enabled: body.enabled !== false,
+    priority: Number(body.priority || 100),
+    createdAt: now,
+    updatedAt: now
+  };
+  await env.DB.prepare(
+    `INSERT INTO rules (id, bot_id, type, pattern, match_mode, template_id, enabled, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(rule.id, rule.botId, rule.type, rule.pattern, rule.matchMode, rule.templateId, rule.enabled ? 1 : 0, rule.priority, rule.createdAt, rule.updatedAt)
+    .run();
+  await createSystemLog(env, { level: 'info', action: 'rule_created', message: 'Reply rule created', botId: rule.botId, entityId: rule.id });
+  return json(rule);
+}
+
+async function ruleAction(request, env, id) {
+  if (request.method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM rules WHERE id = ?').bind(id).run();
+    await createSystemLog(env, { level: 'warn', action: 'rule_deleted', message: 'Reply rule deleted', entityId: id });
+    return json({ ok: true });
+  }
+  if (request.method !== 'PUT') return json({ error: 'NOT_FOUND' }, { status: 404 });
+  const existing = await env.DB.prepare('SELECT * FROM rules WHERE id = ?').bind(id).first();
+  if (!existing) return json({ error: 'RULE_NOT_FOUND' }, { status: 404 });
+  const body = await readJson(request);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE rules SET bot_id=?, type=?, pattern=?, match_mode=?, template_id=?, enabled=?, priority=?, updated_at=? WHERE id=?`
+  )
+    .bind(
+      body.botId || existing.bot_id,
+      body.type || existing.type,
+      body.pattern ?? existing.pattern,
+      body.matchMode || existing.match_mode,
+      body.templateId || existing.template_id,
+      body.enabled === false ? 0 : 1,
+      Number(body.priority || existing.priority || 100),
+      now,
+      id
+    )
+    .run();
+  return json((await listRules(env)).find((rule) => rule.id === id));
+}
+
+async function testRule(request, env) {
+  const body = await readJson(request);
+  const rules = await listRules(env, body.botId);
+  const textValue = String(body.text || '');
+  const rule = rules
+    .filter((item) => item.enabled)
+    .sort((a, b) => Number(a.priority || 100) - Number(b.priority || 100))
+    .find((item) => ruleMatches(item, textValue));
+  const templates = rule?.templateId ? await listTemplates(env, body.botId) : [];
+  return json({
+    matched: Boolean(rule),
+    rule: rule || null,
+    template: rule ? templates.find((template) => template.id === rule.templateId) || null : null
+  });
+}
+
+function ruleMatches(rule, textValue) {
+  const pattern = String(rule.pattern || '');
+  if (!pattern) return false;
+  if (rule.matchMode === 'exact') return textValue === pattern;
+  if (rule.matchMode === 'startsWith') return textValue.startsWith(pattern);
+  if (rule.matchMode === 'regex') {
+    try {
+      return new RegExp(pattern, 'i').test(textValue);
+    } catch {
+      return false;
+    }
+  }
+  return textValue.toLowerCase().includes(pattern.toLowerCase());
+}
+
+async function listBroadcasts(env) {
+  const { results } = await env.DB.prepare('SELECT * FROM broadcasts ORDER BY created_at DESC').all();
+  return results.map((row) => ({
+    id: row.id,
+    botId: row.bot_id,
+    title: row.title,
+    text: row.text,
+    mediaType: row.media_type,
+    mediaPath: row.media_path,
+    buttons: safeJson(row.buttons, []),
+    targetType: row.target_type,
+    status: row.status,
+    totalCount: row.total_count,
+    successCount: row.success_count,
+    failedCount: row.failed_count,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at
+  }));
+}
+
+async function createBroadcast(request, env) {
+  const form = await readForm(request);
+  const now = new Date().toISOString();
+  const broadcast = {
+    id: crypto.randomUUID(),
+    botId: form.botId || '',
+    title: form.title || 'Untitled broadcast',
+    text: form.text || '',
+    mediaType: form.mediaType || 'none',
+    mediaPath: form.mediaPath || '',
+    buttons: normalizeJsonText(form.buttonsJson, '[]'),
+    targetType: form.targetType || 'all',
+    status: 'draft',
+    totalCount: 0,
+    successCount: 0,
+    failedCount: 0,
+    createdAt: now,
+    startedAt: '',
+    finishedAt: ''
+  };
+  await env.DB.prepare(
+    `INSERT INTO broadcasts (id, bot_id, title, text, media_type, media_path, buttons, target_type, status, total_count, success_count, failed_count, created_at, started_at, finished_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      broadcast.id,
+      broadcast.botId,
+      broadcast.title,
+      broadcast.text,
+      broadcast.mediaType,
+      broadcast.mediaPath,
+      broadcast.buttons,
+      broadcast.targetType,
+      broadcast.status,
+      broadcast.totalCount,
+      broadcast.successCount,
+      broadcast.failedCount,
+      broadcast.createdAt,
+      broadcast.startedAt,
+      broadcast.finishedAt
+    )
+    .run();
+  await createSystemLog(env, { level: 'info', action: 'broadcast_created', message: 'Broadcast draft created', botId: broadcast.botId, entityId: broadcast.id });
+  return json({ ...broadcast, buttons: safeJson(broadcast.buttons, []) });
+}
+
+async function broadcastAction(request, env, id, action) {
+  if (!action && request.method === 'GET') {
+    const row = await env.DB.prepare('SELECT * FROM broadcasts WHERE id = ?').bind(id).first();
+    if (!row) return json({ error: 'BROADCAST_NOT_FOUND' }, { status: 404 });
+    const targets = await env.DB.prepare('SELECT * FROM broadcast_targets WHERE broadcast_id = ?').bind(id).all();
+    const item = (await listBroadcasts(env)).find((broadcast) => broadcast.id === id);
+    return json({ ...item, targets: targets.results || [] });
+  }
+  if (!action && request.method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM broadcasts WHERE id = ?').bind(id).run();
+    await env.DB.prepare('DELETE FROM broadcast_targets WHERE broadcast_id = ?').bind(id).run();
+    await createSystemLog(env, { level: 'warn', action: 'broadcast_deleted', message: 'Broadcast deleted', entityId: id });
+    return json({ ok: true });
+  }
+  if (action === 'send' && request.method === 'POST') return sendBroadcast(env, id);
+  return json({ error: 'NOT_FOUND' }, { status: 404 });
+}
+
+async function sendBroadcast(env, id) {
+  const row = await env.DB.prepare('SELECT * FROM broadcasts WHERE id = ?').bind(id).first();
+  if (!row) return json({ error: 'BROADCAST_NOT_FOUND' }, { status: 404 });
+  const bot = await getBot(env, row.bot_id);
+  if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+  const chats = await listChats(env, new URLSearchParams(`botId=${encodeURIComponent(row.bot_id)}`));
+  const now = new Date().toISOString();
+  let successCount = 0;
+  let failedCount = 0;
+  for (const chat of chats) {
+    try {
+      await telegramApi(bot.token, 'sendMessage', { chat_id: chat.chatId, text: row.text || row.title || 'Broadcast' });
+      successCount += 1;
+      await env.DB.prepare('INSERT INTO broadcast_targets (id, broadcast_id, chat_id, status, error_message, sent_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(crypto.randomUUID(), id, chat.chatId, 'sent', '', new Date().toISOString())
+        .run();
+    } catch (error) {
+      failedCount += 1;
+      await env.DB.prepare('INSERT INTO broadcast_targets (id, broadcast_id, chat_id, status, error_message, sent_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(crypto.randomUUID(), id, chat.chatId, 'failed', error.message, '')
+        .run();
+    }
+  }
+  await env.DB.prepare('UPDATE broadcasts SET status=?, total_count=?, success_count=?, failed_count=?, started_at=?, finished_at=? WHERE id=?')
+    .bind('sent', chats.length, successCount, failedCount, now, new Date().toISOString(), id)
+    .run();
+  await createSystemLog(env, {
+    level: failedCount ? 'warn' : 'info',
+    action: 'broadcast_sent',
+    message: `Broadcast sent: ${successCount} success, ${failedCount} failed`,
+    botId: row.bot_id,
+    entityId: id
+  });
+  return json((await listBroadcasts(env)).find((broadcast) => broadcast.id === id));
+}
+
+async function getMenus(env, botId) {
+  if (!botId) return defaultMenus();
+  const row = await env.DB.prepare('SELECT * FROM menus WHERE bot_id = ?').bind(botId).first();
+  if (!row) return defaultMenus();
+  return {
+    inline: safeJson(row.inline_json, []),
+    keyboard: safeJson(row.keyboard_json, [])
+  };
+}
+
+async function updateMenus(request, env, botId) {
+  const body = await readJson(request);
+  const menus = {
+    inline: Array.isArray(body.inline) ? body.inline : [],
+    keyboard: Array.isArray(body.keyboard) ? body.keyboard : []
+  };
+  await updateMenusRows(env, botId, menus);
+  return json(menus);
+}
+
+async function updateMenusRows(env, botId, menus) {
+  await env.DB.prepare(
+    `INSERT INTO menus (bot_id, inline_json, keyboard_json, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(bot_id) DO UPDATE SET inline_json=excluded.inline_json, keyboard_json=excluded.keyboard_json, updated_at=excluded.updated_at`
+  )
+    .bind(botId, JSON.stringify(menus.inline || []), JSON.stringify(menus.keyboard || []), new Date().toISOString())
+    .run();
+}
+
+async function listSystemLogs(env, limit = 200) {
+  const { results } = await env.DB.prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT ?').bind(limit).all();
+  return results.map((row) => ({
+    id: row.id,
+    level: row.level,
+    action: row.action,
+    message: row.message,
+    botId: row.bot_id,
+    entityId: row.entity_id,
+    metadata: safeJson(row.metadata, {}),
+    createdAt: row.created_at
+  }));
+}
+
+async function createSystemLog(env, input) {
+  if (!env.DB) return;
+  await env.DB.prepare(
+    `INSERT INTO system_logs (id, level, action, message, bot_id, entity_id, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      crypto.randomUUID(),
+      input.level || 'info',
+      input.action || 'unknown',
+      input.message || '',
+      input.botId || '',
+      input.entityId || '',
+      JSON.stringify(input.metadata || {}),
+      new Date().toISOString()
+    )
+    .run();
+}
+
+async function getStoredAiConfig(env) {
+  return await env.DB.prepare('SELECT * FROM ai_config WHERE id = ?').bind('default').first();
+}
+
+function resolveAiConfig(env, saved = null) {
+  const provider = saved?.provider || env.AI_PROVIDER || (env.AI_BASE_URL?.includes('openai') ? 'openai' : 'deepseek');
+  const defaults = providers[provider] || providers.deepseek;
+  return {
+    provider,
+    apiKey: saved?.api_key || env.AI_API_KEY || '',
+    baseURL: saved?.base_url || env.AI_BASE_URL || defaults.baseURL,
+    model: saved?.model || env.AI_MODEL || defaults.model
+  };
+}
+
+async function telegramGetMe(token) {
+  if (!token) throw new Error('Token is required');
+  return await telegramApi(token, 'getMe');
+}
+
+async function telegramApi(token, method, payload = null) {
+  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    method: payload ? 'POST' : 'GET',
+    headers: payload ? { 'content-type': 'application/json' } : {},
+    body: payload ? JSON.stringify(payload) : undefined
+  });
+  const data = await response.json();
+  if (!data.ok) throw new Error(data.description || `Telegram API ${method} failed`);
+  return data.result;
+}
 
 async function handleTelegramWebhook(request, env, ctx) {
   if (request.method !== 'POST') return json({ error: 'METHOD_NOT_ALLOWED' }, { status: 405 });
@@ -99,4 +1051,109 @@ async function recordRawUpdate(env, update) {
       new Date().toISOString()
     )
     .run();
+}
+
+async function readJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    return {};
+  }
+}
+
+async function readForm(request) {
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.includes('multipart/form-data') && !contentType.includes('application/x-www-form-urlencoded')) {
+    return readJson(request);
+  }
+  const form = await request.formData();
+  const data = {};
+  for (const [key, value] of form.entries()) {
+    if (value instanceof File) {
+      data[key] = value.name ? `r2-pending:${value.name}` : '';
+    } else {
+      data[key] = value;
+    }
+  }
+  return data;
+}
+
+function normalizeJsonText(value, fallback = '[]') {
+  if (!value) return fallback;
+  try {
+    return JSON.stringify(JSON.parse(value));
+  } catch {
+    return fallback;
+  }
+}
+
+async function exportData(env) {
+  const [bots, chats, messages, templates, rules, menus, broadcasts, logs, aiConfig] = await Promise.all([
+    listBots(env),
+    listChats(env, new URLSearchParams()),
+    listMessages(env, new URLSearchParams()),
+    listTemplates(env),
+    listRules(env),
+    env.DB.prepare('SELECT * FROM menus').all(),
+    listBroadcasts(env),
+    listSystemLogs(env, 500),
+    getStoredAiConfig(env)
+  ]);
+  return json({
+    exportedAt: new Date().toISOString(),
+    runtime: 'cloudflare',
+    bots: bots.map(publicBot),
+    chats,
+    messages,
+    templates,
+    rules,
+    menus: menus.results || [],
+    broadcasts,
+    systemLogs: logs,
+    aiConfig: aiConfig ? { ...aiConfig, api_key: maskSecret(aiConfig.api_key) } : null
+  });
+}
+
+function defaultMenus() {
+  return {
+    inline: [
+      [
+        { text: 'Contact Support', actionType: 'callback', actionValue: 'contact_support' },
+        { text: 'Open Channel', actionType: 'url', actionValue: 'https://t.me/' }
+      ]
+    ],
+    keyboard: [
+      [
+        { text: 'Contact Support', actionType: 'text', actionValue: 'Contact Support' },
+        { text: 'FAQ', actionType: 'text', actionValue: 'FAQ' }
+      ],
+      [
+        { text: 'Pricing', actionType: 'text', actionValue: 'Pricing' },
+        { text: 'Main Menu', actionType: 'text', actionValue: 'Main Menu' }
+      ]
+    ]
+  };
+}
+
+function maskToken(token = '') {
+  if (!token) return '';
+  if (token.length < 12) return '***';
+  return `${token.slice(0, 8)}...${token.slice(-5)}`;
+}
+
+function maskSecret(secret = '') {
+  if (!secret) return '';
+  if (secret.length < 10) return '***';
+  return `${secret.slice(0, 4)}...${secret.slice(-4)}`;
+}
+
+function safeJson(value, fallback) {
+  if (Array.isArray(value)) return Array.isArray(fallback) ? value : fallback;
+  if (value && typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(value || '');
+    return Array.isArray(fallback) ? (Array.isArray(parsed) ? parsed : fallback) : parsed || fallback;
+  } catch {
+    return fallback;
+  }
 }
