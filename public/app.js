@@ -202,6 +202,7 @@ async function checkRealtimeUpdates() {
   if (!state.password || state.realtimeBusy) return;
   state.realtimeBusy = true;
   try {
+    const editing = isUserEditing();
     const [dashboard, chats, logs] = await Promise.all([
       api('/api/dashboard'),
       api('/api/chats'),
@@ -220,12 +221,20 @@ async function checkRealtimeUpdates() {
         showIncomingNotice(latest, newUserMessages.length);
       }
     }
-    render();
+    if (!editing) render();
   } catch {
     // Keep realtime quiet during transient network or auth refresh issues.
   } finally {
     state.realtimeBusy = false;
   }
+}
+
+function isUserEditing() {
+  const active = document.activeElement;
+  if (!active) return false;
+  if (state.modal) return true;
+  if (active.closest?.('#replyForm, #botForm, #templateForm, #ruleForm, #broadcastForm, #testChatForm, #importForm')) return true;
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
 }
 
 function rememberMessages(messages = []) {
