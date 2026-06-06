@@ -27,6 +27,7 @@ const state = {
   realtimeTimer: null,
   realtimeBusy: false,
   soundEnabled: localStorage.getItem('tg_sound_enabled') !== 'false',
+  soundVolume: Number(localStorage.getItem('tg_sound_volume') || 60),
   soundUnlocked: false,
   aiTestReply: '',
   ruleTestResult: null
@@ -257,8 +258,9 @@ function playNotificationSound() {
     const gain = context.createGain();
     oscillator.type = 'sine';
     oscillator.frequency.value = 880;
+    const volume = Math.max(0.001, Math.min(0.25, state.soundVolume / 400));
     gain.gain.setValueAtTime(0.001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(volume, context.currentTime + 0.015);
     gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.22);
     oscillator.connect(gain);
     gain.connect(context.destination);
@@ -285,6 +287,10 @@ function render() {
         <div class="top-actions">
           <span class="live-indicator"><span class="live-dot"></span>Live</span>
           <button data-action="toggle-sound">${state.soundEnabled ? 'Sound On' : 'Sound Off'}</button>
+          <label class="volume-control" title="Message sound volume">
+            <span>Vol</span>
+            <input id="soundVolume" type="range" min="0" max="100" value="${state.soundVolume}" />
+          </label>
           <button data-action="refresh">Refresh</button>
           <button data-action="logout">Logout</button>
         </div>
@@ -918,12 +924,33 @@ function replyComposer(chat) {
     <form id="replyForm" style="margin-top:14px;">
       <div class="form-grid">
         <div class="form-row full"><label>Reply Text</label><textarea name="text" placeholder="Type a manual reply..."></textarea></div>
+        <div class="form-row">
+          <label>Translate To</label>
+          <input name="targetLanguage" list="languageOptions" value="auto" placeholder="auto, English, Japanese..." />
+          <datalist id="languageOptions">
+            <option value="auto"></option>
+            <option value="English"></option>
+            <option value="Chinese"></option>
+            <option value="Japanese"></option>
+            <option value="Korean"></option>
+            <option value="Spanish"></option>
+            <option value="French"></option>
+            <option value="German"></option>
+            <option value="Russian"></option>
+            <option value="Arabic"></option>
+            <option value="Hindi"></option>
+            <option value="Portuguese"></option>
+          </datalist>
+        </div>
+        <div class="form-row"><label>Send Mode</label><select name="translateMode"><option value="none">Original</option><option value="translate">Translate before sending</option></select></div>
         <div class="form-row"><label>Media Type</label><select name="mediaType"><option value="none">Text only</option><option value="photo">Photo</option><option value="video">Video</option><option value="document">Document</option></select></div>
         <div class="form-row"><label>Upload Media</label><input name="media" type="file" /></div>
         <div class="form-row full"><label>Inline Buttons</label>${inlineButtonsBuilder('buttonsJson', [])}</div>
+        <div id="translationPreview" class="translation-preview full" hidden></div>
       </div>
       <div class="actions" style="margin-top:12px;">
         <button class="primary">Send</button>
+        <button type="button" data-action="preview-translation">Translate Preview</button>
         <button type="button" data-action="save-internal-note">Save Internal Note</button>
         <button type="button" data-action="set-chat-status" data-id="${chat.id}" data-status="manual">Manual Takeover</button>
         <button type="button" data-action="set-chat-status" data-id="${chat.id}" data-status="auto">Auto Reply</button>
@@ -1280,6 +1307,14 @@ function bindCommon() {
     }
     render();
   });
+  document.querySelector('#soundVolume')?.addEventListener('input', (event) => {
+    state.soundVolume = Number(event.target.value || 60);
+    localStorage.setItem('tg_sound_volume', String(state.soundVolume));
+  });
+  document.querySelector('#soundVolume')?.addEventListener('change', () => {
+    state.soundUnlocked = true;
+    if (state.soundEnabled) playNotificationSound();
+  });
   document.querySelector('[data-action="logout"]')?.addEventListener('click', () => {
     stopRealtime();
     localStorage.removeItem('tg_admin_password');
@@ -1395,6 +1430,7 @@ function bindForms() {
   document.querySelector('#replyForm')?.addEventListener('submit', submitReply);
   document.querySelector('#testChatForm')?.addEventListener('submit', submitTestChat);
   document.querySelector('[data-action="save-internal-note"]')?.addEventListener('click', submitInternalNote);
+  document.querySelector('[data-action="preview-translation"]')?.addEventListener('click', previewTranslation);
   document.querySelector('[data-action="test-rule"]')?.addEventListener('click', testRule);
   document.querySelector('[data-action="save-ai"]')?.addEventListener('click', saveAi);
   document.querySelector('[data-action="save-ai-config"]')?.addEventListener('click', saveAiConfig);
@@ -1686,11 +1722,39 @@ async function submitReply(event) {
   const data = new FormData(form);
   data.append('botId', state.selectedBotId);
   data.append('chatId', state.selectedChatId);
+  data.append('translate', data.get('translateMode') === 'translate' ? 'true' : 'false');
   await api('/api/messages/send', { method: 'POST', body: data });
   form.reset();
   notify('Reply sent');
   await refreshMessages();
   render();
+}
+
+async function previewTranslation() {
+  try {
+    const form = document.querySelector('#replyForm');
+    const data = Object.fromEntries(new FormData(form));
+    if (!data.text || !String(data.text).trim()) return notify('Enter reply text first');
+    const result = await api('/api/translate', {
+      method: 'POST',
+      body: JSON.stringify({
+        botId: state.selectedBotId,
+        chatId: state.selectedChatId,
+        text: data.text,
+        targetLanguage: data.targetLanguage || 'auto'
+      })
+    });
+    const preview = document.querySelector('#translationPreview');
+    if (preview) {
+      preview.hidden = false;
+      preview.innerHTML = `<strong>Translation</strong><p>${escapeHtml(result.text || '')}</p>`;
+    }
+    form.querySelector('[name="text"]').value = result.text || data.text;
+    form.querySelector('[name="translateMode"]').value = 'none';
+    notify(`Translated to ${result.targetLanguage || 'target language'}`);
+  } catch (error) {
+    notify(error.message);
+  }
 }
 
 async function submitInternalNote() {

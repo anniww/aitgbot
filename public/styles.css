@@ -221,6 +221,24 @@ textarea {
   box-shadow: 0 0 0 5px rgba(22, 163, 74, .12);
 }
 
+.volume-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: var(--panel-strong);
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.volume-control input {
+  width: 86px;
+  accent-color: var(--cyan);
+}
+
 .top-actions button {
   border-color: var(--line);
   background: #fff;
@@ -1105,6 +1123,20 @@ label {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.translation-preview {
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  background: #f0f9ff;
+  color: var(--primary-dark);
+  padding: 10px 12px;
+}
+
+.translation-preview p {
+  margin: 6px 0 0;
+  color: var(--text);
+  white-space: pre-wrap;
 }
 
 .button-editor {

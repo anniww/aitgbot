@@ -84,6 +84,7 @@ async function routeApi(request, env, ctx, url) {
     if (url.pathname === '/api/messages' && request.method === 'GET') return json(await listMessages(env, url.searchParams));
     if (url.pathname === '/api/messages/note' && request.method === 'POST') return createInternalNote(request, env);
     if (url.pathname === '/api/messages/send' && request.method === 'POST') return sendManualMessage(request, env);
+    if (url.pathname === '/api/translate' && request.method === 'POST') return translateReply(request, env);
 
     if (url.pathname === '/api/templates' && request.method === 'GET') return json(await listTemplates(env, url.searchParams.get('botId')));
     if (url.pathname === '/api/templates' && request.method === 'POST') return createTemplate(request, env);
@@ -667,8 +668,17 @@ async function sendManualMessage(request, env) {
   if (!form.botId || !form.chatId) return json({ error: 'botId and chatId are required' }, { status: 400 });
   const bot = await getBot(env, form.botId);
   if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
-  const textValue = form.text || '';
+  let textValue = form.text || '';
   if (!textValue && form.mediaType === 'none') return json({ error: 'Message text or media is required' }, { status: 400 });
+  if ((form.translate === 'true' || form.translate === true) && textValue) {
+    const translated = await translateText(env, {
+      botId: form.botId,
+      chatId: form.chatId,
+      text: textValue,
+      targetLanguage: form.targetLanguage || 'auto'
+    });
+    textValue = translated.text || textValue;
+  }
   const message = await insertMessage(env, {
     botId: form.botId,
     chatId: form.chatId,
@@ -681,6 +691,12 @@ async function sendManualMessage(request, env) {
   const result = await telegramApi(bot.token, 'sendMessage', payload);
   await createSystemLog(env, { level: 'info', action: 'manual_message_sent', message: 'Manual message sent from Cloudflare', botId: form.botId, entityId: form.chatId });
   return json({ ok: true, message, telegram: result });
+}
+
+async function translateReply(request, env) {
+  const body = await readJson(request);
+  if (!body.text) return json({ error: 'Text is required' }, { status: 400 });
+  return json(await translateText(env, body));
 }
 
 async function listTemplates(env, botId) {
@@ -1328,6 +1344,52 @@ async function generateAiReply(env, bot, textValue, chatId = '') {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error?.message || data.message || `AI request failed: ${response.status}`);
   return data.choices?.[0]?.message?.content?.trim() || '';
+}
+
+async function translateText(env, input) {
+  const active = resolveAiConfig(env, await getStoredAiConfig(env));
+  if (!active.apiKey) throw new Error('AI_API_KEY_REQUIRED');
+  const bot = input.botId ? await getBot(env, input.botId) : null;
+  const history = input.botId && input.chatId
+    ? await listMessages(env, new URLSearchParams(`botId=${encodeURIComponent(input.botId)}&chatId=${encodeURIComponent(input.chatId)}`))
+    : [];
+  const recentUserText = history
+    .filter((item) => item.role === 'user' && item.content)
+    .slice(-5)
+    .map((item) => item.content)
+    .join('\n');
+  const targetLanguage = input.targetLanguage || 'auto';
+  const instruction = targetLanguage === 'auto'
+    ? 'Detect the customer language from the recent customer messages. Translate the reply text into that language. If no customer language can be inferred, keep the original language.'
+    : `Translate the reply text into ${targetLanguage}.`;
+  const messages = [
+    {
+      role: 'system',
+      content: `${instruction} Return only the translated text. Preserve meaning, tone, links, prices, codes, emoji, and line breaks. Do not add explanations.`
+    },
+    {
+      role: 'user',
+      content: `Recent customer messages:\n${recentUserText || '(none)'}\n\nReply text:\n${input.text}`
+    }
+  ];
+  const response = await fetch(`${active.baseURL.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${active.apiKey}`
+    },
+    body: JSON.stringify({
+      model: resolveAiModel(bot?.aiModel, active),
+      messages,
+      temperature: 0.1
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error?.message || data.message || `Translation failed: ${response.status}`);
+  return {
+    text: data.choices?.[0]?.message?.content?.trim() || input.text,
+    targetLanguage
+  };
 }
 
 function resolveAiModel(botModel, active) {
