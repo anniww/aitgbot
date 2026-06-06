@@ -39,7 +39,7 @@ export default {
 
     if (url.pathname === '/api/health') return health(env);
     if (url.pathname === '/api/bootstrap') return json({ needsPassword: true, runtime: 'cloudflare' });
-    if (url.pathname === '/api/telegram/webhook') return handleTelegramWebhook(request, env, ctx);
+    if (url.pathname === '/api/telegram/webhook') return handleTelegramWebhook(request, env, ctx, url);
 
     if (url.pathname.startsWith('/api/')) {
       const auth = requireAdmin(request, env);
@@ -349,13 +349,43 @@ async function botAction(request, env, botId, action) {
       .run();
     return json(publicBot({ ...(await getBot(env, botId)), tokenVerified: true }));
   }
-  if ((action === 'start' || action === 'stop') && request.method === 'POST') {
+  if (action === 'start' && request.method === 'POST') {
+    const bot = await getBot(env, botId);
+    if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+    const origin = new URL(request.url).origin;
+    const webhookUrl = `${origin}/api/telegram/webhook?botId=${encodeURIComponent(botId)}`;
+    const payload = {
+      url: webhookUrl,
+      allowed_updates: ['message', 'callback_query']
+    };
+    if (env.TELEGRAM_WEBHOOK_SECRET) payload.secret_token = env.TELEGRAM_WEBHOOK_SECRET;
+    const webhook = await telegramApi(bot.token, 'setWebhook', payload);
+    const now = new Date().toISOString();
+    await env.DB.prepare('UPDATE bots SET status = ?, updated_at = ? WHERE id = ?').bind('running', now, botId).run();
+    await createSystemLog(env, { level: 'info', action: 'webhook_set', message: 'Telegram webhook set for Cloudflare Worker', botId, entityId: botId, metadata: { webhookUrl } });
+    return json({
+      botId,
+      status: 'running',
+      startedAt: now,
+      lastUpdateAt: '',
+      lastError: '',
+      webhook,
+      webhookUrl
+    });
+  }
+  if (action === 'stop' && request.method === 'POST') {
+    const bot = await getBot(env, botId);
+    if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
+    const webhook = await telegramApi(bot.token, 'deleteWebhook', { drop_pending_updates: false });
+    await env.DB.prepare('UPDATE bots SET status = ?, updated_at = ? WHERE id = ?').bind('stopped', new Date().toISOString(), botId).run();
+    await createSystemLog(env, { level: 'warn', action: 'webhook_deleted', message: 'Telegram webhook deleted from Cloudflare Worker', botId, entityId: botId });
     return json({
       botId,
       status: 'stopped',
       startedAt: '',
       lastUpdateAt: '',
-      lastError: 'Cloudflare deployment uses Telegram webhook mode, not local polling.'
+      lastError: '',
+      webhook
     });
   }
   if (action === 'diagnostics' && request.method === 'GET') {
@@ -1014,7 +1044,7 @@ async function telegramApi(token, method, payload = null) {
   return data.result;
 }
 
-async function handleTelegramWebhook(request, env, ctx) {
+async function handleTelegramWebhook(request, env, ctx, url) {
   if (request.method !== 'POST') return json({ error: 'METHOD_NOT_ALLOWED' }, { status: 405 });
 
   const expectedSecret = env.TELEGRAM_WEBHOOK_SECRET || '';
@@ -1030,19 +1060,36 @@ async function handleTelegramWebhook(request, env, ctx) {
     return json({ error: 'INVALID_JSON' }, { status: 400 });
   }
 
-  ctx.waitUntil(recordRawUpdate(env, update));
+  const botId = url.searchParams.get('botId') || '';
+  ctx.waitUntil(processTelegramUpdate(env, botId, update));
   return json({ ok: true });
 }
 
-async function recordRawUpdate(env, update) {
+async function processTelegramUpdate(env, botId, update) {
   if (!env.DB) return;
+  const rawId = await recordRawUpdate(env, botId, update);
+  try {
+    const bot = botId ? await getBot(env, botId) : null;
+    if (!bot) throw new Error('BOT_NOT_FOUND_FOR_WEBHOOK');
+    if (update.message) await handleIncomingMessage(env, bot, update.message);
+    if (update.callback_query) await handleIncomingCallback(env, bot, update.callback_query);
+    await env.DB.prepare('UPDATE raw_updates SET handled = 1, error_message = ? WHERE id = ?').bind('', rawId).run();
+    await env.DB.prepare('UPDATE bots SET status = ?, updated_at = ? WHERE id = ?').bind('running', new Date().toISOString(), botId).run();
+  } catch (error) {
+    await env.DB.prepare('UPDATE raw_updates SET handled = 0, error_message = ? WHERE id = ?').bind(error.message || 'Webhook handling failed', rawId).run();
+    await createSystemLog(env, { level: 'error', action: 'webhook_update_failed', message: error.message || 'Webhook handling failed', botId, entityId: String(update.update_id || '') });
+  }
+}
+
+async function recordRawUpdate(env, botId, update) {
+  const id = crypto.randomUUID();
   await env.DB.prepare(
     `INSERT INTO raw_updates (id, bot_id, update_id, update_type, payload, handled, error_message, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
-      crypto.randomUUID(),
-      '',
+      id,
+      botId || '',
       update.update_id || null,
       update.message ? 'message' : update.callback_query ? 'callback_query' : 'unknown',
       JSON.stringify(update),
@@ -1051,6 +1098,202 @@ async function recordRawUpdate(env, update) {
       new Date().toISOString()
     )
     .run();
+  return id;
+}
+
+async function handleIncomingMessage(env, bot, message) {
+  const chat = message.chat || {};
+  const chatId = String(chat.id || '');
+  if (!chatId) return;
+  const textValue = message.text || message.caption || incomingMediaLabel(message);
+  const media = extractIncomingMedia(message);
+  await upsertChat(env, {
+    botId: bot.id,
+    chatId,
+    username: chat.username || '',
+    firstName: chat.first_name || '',
+    lastName: chat.last_name || '',
+    type: chat.type || 'private'
+  });
+  await insertMessage(env, {
+    botId: bot.id,
+    chatId,
+    role: 'user',
+    content: textValue,
+    mediaType: media.mediaType,
+    telegramFileId: media.telegramFileId,
+    source: 'telegram'
+  });
+
+  const chatState = await getChatByBotChat(env, bot.id, chatId);
+  if (chatState?.status === 'blocked' || chatState?.status === 'manual') return;
+
+  const isStart = String(message.text || '').trim().startsWith('/start');
+  if (isStart) {
+    const menus = await getMenus(env, bot.id);
+    await sendBotText(env, bot, chatId, bot.welcomeMessage || 'Welcome.', buildStartReplyMarkup(menus), 'rule');
+    if (hasKeyboard(menus)) await sendBotText(env, bot, chatId, 'Menu ready.', { keyboard: menus.keyboard, resize_keyboard: true }, 'rule');
+    return;
+  }
+
+  const rule = await findMatchingRule(env, bot.id, message.text || '');
+  if (rule?.templateId) {
+    const templates = await listTemplates(env, bot.id);
+    const template = templates.find((item) => item.id === rule.templateId);
+    if (template) {
+      await sendTemplate(env, bot, chatId, template, 'rule');
+      return;
+    }
+  }
+
+  if (bot.defaultReply) await sendBotText(env, bot, chatId, bot.defaultReply, null, 'default');
+}
+
+async function handleIncomingCallback(env, bot, query) {
+  const chatId = String(query.message?.chat?.id || '');
+  const data = query.data || '';
+  if (!chatId) return;
+  await telegramApi(bot.token, 'answerCallbackQuery', { callback_query_id: query.id }).catch(() => null);
+  await upsertChat(env, {
+    botId: bot.id,
+    chatId,
+    username: query.from?.username || '',
+    firstName: query.from?.first_name || '',
+    lastName: query.from?.last_name || '',
+    type: query.message?.chat?.type || 'private'
+  });
+  await insertMessage(env, {
+    botId: bot.id,
+    chatId,
+    role: 'user',
+    content: `[callback] ${data}`,
+    source: 'telegram'
+  });
+  if (data === 'contact_support') {
+    const chat = await getChatByBotChat(env, bot.id, chatId);
+    if (chat) await env.DB.prepare('UPDATE chats SET status = ?, updated_at = ? WHERE id = ?').bind('manual', new Date().toISOString(), chat.id).run();
+    await sendBotText(env, bot, chatId, 'Support takeover enabled. A human operator will reply soon.', null, 'rule');
+    return;
+  }
+  const rule = await findMatchingRule(env, bot.id, data);
+  if (rule?.templateId) {
+    const templates = await listTemplates(env, bot.id);
+    const template = templates.find((item) => item.id === rule.templateId);
+    if (template) await sendTemplate(env, bot, chatId, template, 'rule');
+  }
+}
+
+async function upsertChat(env, input) {
+  const now = new Date().toISOString();
+  const id = `${input.botId}:${input.chatId}`;
+  await env.DB.prepare(
+    `INSERT INTO chats (id, bot_id, chat_id, username, first_name, last_name, type, status, last_message_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(bot_id, chat_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, type=excluded.type, last_message_at=excluded.last_message_at, updated_at=excluded.updated_at`
+  )
+    .bind(id, input.botId, input.chatId, input.username || '', input.firstName || '', input.lastName || '', input.type || 'private', 'auto', now, now, now)
+    .run();
+}
+
+async function getChatByBotChat(env, botId, chatId) {
+  const row = await env.DB.prepare('SELECT * FROM chats WHERE bot_id = ? AND chat_id = ?').bind(botId, chatId).first();
+  return row
+    ? {
+        id: row.id,
+        botId: row.bot_id,
+        chatId: row.chat_id,
+        status: row.status
+      }
+    : null;
+}
+
+async function sendTemplate(env, bot, chatId, template, source) {
+  const replyMarkup = template.buttons?.length ? { inline_keyboard: toTelegramInlineKeyboard(template.buttons) } : null;
+  if (template.mediaType && template.mediaType !== 'none' && template.telegramFileId) {
+    const method = template.mediaType === 'photo' ? 'sendPhoto' : template.mediaType === 'video' ? 'sendVideo' : 'sendDocument';
+    const mediaKey = template.mediaType === 'photo' ? 'photo' : template.mediaType === 'video' ? 'video' : 'document';
+    const payload = { chat_id: chatId, [mediaKey]: template.telegramFileId, caption: template.text || undefined };
+    if (replyMarkup) payload.reply_markup = replyMarkup;
+    await telegramApi(bot.token, method, payload);
+  } else {
+    await sendBotText(env, bot, chatId, template.text || '', replyMarkup, source);
+    return;
+  }
+  await insertMessage(env, {
+    botId: bot.id,
+    chatId,
+    role: 'bot',
+    content: template.text || '',
+    mediaType: template.mediaType || 'none',
+    telegramFileId: template.telegramFileId || '',
+    source
+  });
+}
+
+async function sendBotText(env, bot, chatId, textValue, replyMarkup, source) {
+  const payload = { chat_id: chatId, text: textValue || ' ' };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+  await telegramApi(bot.token, 'sendMessage', payload);
+  await insertMessage(env, {
+    botId: bot.id,
+    chatId,
+    role: 'bot',
+    content: textValue,
+    source
+  });
+}
+
+async function findMatchingRule(env, botId, textValue) {
+  const rules = await listRules(env, botId);
+  return rules
+    .filter((item) => item.enabled)
+    .sort((a, b) => Number(a.priority || 100) - Number(b.priority || 100))
+    .find((item) => ruleMatches(item, textValue));
+}
+
+function buildStartReplyMarkup(menus) {
+  if (hasInline(menus)) return { inline_keyboard: toTelegramInlineKeyboard(menus.inline) };
+  if (hasKeyboard(menus)) return { keyboard: menus.keyboard.map((row) => row.map((button) => ({ text: button.text }))), resize_keyboard: true };
+  return null;
+}
+
+function toTelegramInlineKeyboard(rows = []) {
+  return rows.map((row) =>
+    row.map((button) => {
+      if (button.actionType === 'url') return { text: button.text, url: button.actionValue };
+      return { text: button.text, callback_data: button.actionValue || button.text };
+    })
+  );
+}
+
+function hasInline(menus) {
+  return Array.isArray(menus?.inline) && menus.inline.some((row) => row.length);
+}
+
+function hasKeyboard(menus) {
+  return Array.isArray(menus?.keyboard) && menus.keyboard.some((row) => row.length);
+}
+
+function incomingMediaLabel(message) {
+  if (message.photo) return '[photo]';
+  if (message.video) return '[video]';
+  if (message.document) return '[document]';
+  if (message.voice) return '[voice]';
+  if (message.audio) return '[audio]';
+  if (message.sticker) return '[sticker]';
+  return '';
+}
+
+function extractIncomingMedia(message) {
+  if (message.photo?.length) {
+    const photo = message.photo[message.photo.length - 1];
+    return { mediaType: 'photo', telegramFileId: photo.file_id || '' };
+  }
+  if (message.video) return { mediaType: 'video', telegramFileId: message.video.file_id || '' };
+  if (message.document) return { mediaType: 'document', telegramFileId: message.document.file_id || '' };
+  if (message.voice) return { mediaType: 'voice', telegramFileId: message.voice.file_id || '' };
+  if (message.audio) return { mediaType: 'audio', telegramFileId: message.audio.file_id || '' };
+  return { mediaType: 'none', telegramFileId: '' };
 }
 
 async function readJson(request) {
