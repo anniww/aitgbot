@@ -330,7 +330,9 @@ async function createBot(request, env) {
     botId: id,
     entityId: id
   });
-  return json(publicBot(bot));
+  if (skipTokenTest) return json(publicBot(bot));
+  const webhook = await setBotWebhook(request, env, bot);
+  return json({ ...publicBot(await getBot(env, id)), webhookUrl: webhook.webhookUrl });
 }
 
 async function botAction(request, env, botId, action) {
@@ -347,30 +349,22 @@ async function botAction(request, env, botId, action) {
     await env.DB.prepare('UPDATE bots SET username = ?, token_verified = 1, updated_at = ? WHERE id = ?')
       .bind(info.username || '', new Date().toISOString(), botId)
       .run();
-    return json(publicBot({ ...(await getBot(env, botId)), tokenVerified: true }));
+    const updated = await getBot(env, botId);
+    const webhook = await setBotWebhook(request, env, updated);
+    return json({ ...publicBot({ ...updated, tokenVerified: true }), webhookUrl: webhook.webhookUrl });
   }
   if (action === 'start' && request.method === 'POST') {
     const bot = await getBot(env, botId);
     if (!bot) return json({ error: 'BOT_NOT_FOUND' }, { status: 404 });
-    const origin = new URL(request.url).origin;
-    const webhookUrl = `${origin}/api/telegram/webhook?botId=${encodeURIComponent(botId)}`;
-    const payload = {
-      url: webhookUrl,
-      allowed_updates: ['message', 'callback_query']
-    };
-    if (env.TELEGRAM_WEBHOOK_SECRET) payload.secret_token = env.TELEGRAM_WEBHOOK_SECRET;
-    const webhook = await telegramApi(bot.token, 'setWebhook', payload);
-    const now = new Date().toISOString();
-    await env.DB.prepare('UPDATE bots SET status = ?, updated_at = ? WHERE id = ?').bind('running', now, botId).run();
-    await createSystemLog(env, { level: 'info', action: 'webhook_set', message: 'Telegram webhook set for Cloudflare Worker', botId, entityId: botId, metadata: { webhookUrl } });
+    const webhook = await setBotWebhook(request, env, bot);
     return json({
       botId,
       status: 'running',
-      startedAt: now,
+      startedAt: webhook.startedAt,
       lastUpdateAt: '',
       lastError: '',
-      webhook,
-      webhookUrl
+      webhook: webhook.result,
+      webhookUrl: webhook.webhookUrl
     });
   }
   if (action === 'stop' && request.method === 'POST') {
@@ -438,7 +432,14 @@ async function updateBot(request, env, botId) {
       botId
     )
     .run();
-  return json(publicBot(await getBot(env, botId)));
+  const updated = await getBot(env, botId);
+  if (body.token || updated.tokenVerified) {
+    await telegramGetMe(updated.token);
+    await env.DB.prepare('UPDATE bots SET token_verified = 1 WHERE id = ?').bind(botId).run();
+    const webhook = await setBotWebhook(request, env, await getBot(env, botId));
+    return json({ ...publicBot(await getBot(env, botId)), webhookUrl: webhook.webhookUrl });
+  }
+  return json(publicBot(updated));
 }
 
 async function testToken(request) {
@@ -482,6 +483,28 @@ function publicBot(bot) {
     token: maskToken(bot.token),
     runtime: bot.runtime || { botId: bot.id, status: 'webhook', startedAt: '', lastUpdateAt: '', lastError: '' }
   };
+}
+
+async function setBotWebhook(request, env, bot) {
+  const origin = new URL(request.url).origin;
+  const webhookUrl = `${origin}/api/telegram/webhook?botId=${encodeURIComponent(bot.id)}`;
+  const payload = {
+    url: webhookUrl,
+    allowed_updates: ['message', 'callback_query']
+  };
+  if (env.TELEGRAM_WEBHOOK_SECRET) payload.secret_token = env.TELEGRAM_WEBHOOK_SECRET;
+  const result = await telegramApi(bot.token, 'setWebhook', payload);
+  const startedAt = new Date().toISOString();
+  await env.DB.prepare('UPDATE bots SET status = ?, token_verified = 1, updated_at = ? WHERE id = ?').bind('running', startedAt, bot.id).run();
+  await createSystemLog(env, {
+    level: 'info',
+    action: 'webhook_set',
+    message: 'Telegram webhook set automatically for Cloudflare Worker',
+    botId: bot.id,
+    entityId: bot.id,
+    metadata: { webhookUrl }
+  });
+  return { result, webhookUrl, startedAt };
 }
 
 async function listChats(env, params) {
@@ -1060,9 +1083,16 @@ async function handleTelegramWebhook(request, env, ctx, url) {
     return json({ error: 'INVALID_JSON' }, { status: 400 });
   }
 
-  const botId = url.searchParams.get('botId') || '';
+  const botId = await resolveWebhookBotId(env, url.searchParams.get('botId') || '');
   ctx.waitUntil(processTelegramUpdate(env, botId, update));
   return json({ ok: true });
+}
+
+async function resolveWebhookBotId(env, botId) {
+  if (botId) return botId;
+  const bots = await listBots(env);
+  if (bots.length === 1) return bots[0].id;
+  return '';
 }
 
 async function processTelegramUpdate(env, botId, update) {
