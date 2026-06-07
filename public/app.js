@@ -447,43 +447,37 @@ function messagesView() {
   const chat = selectedChat();
   return `
     ${pageHead('Messages', 'Customer support inbox with manual takeover and media replies.', '<button data-modal="test-chat">Add Test Chat</button>')}
-    ${botSelector()}
-    <div class="message-filters panel">
-      <div class="form-row">
-        <label>Conversation Search</label>
-        <input id="chatSearch" value="${escapeAttr(state.chatSearch)}" placeholder="chat_id, username, first name..." />
-      </div>
-      <div class="form-row">
-        <label>Chat Status</label>
-        <select id="chatStatusFilter">
-          <option value="" ${state.chatStatusFilter === '' ? 'selected' : ''}>All</option>
-          <option value="auto" ${state.chatStatusFilter === 'auto' ? 'selected' : ''}>Auto</option>
-          <option value="manual" ${state.chatStatusFilter === 'manual' ? 'selected' : ''}>Manual</option>
-          <option value="blocked" ${state.chatStatusFilter === 'blocked' ? 'selected' : ''}>Blocked</option>
-        </select>
-      </div>
-      <div class="form-row">
-        <label>Message Search</label>
-        <input id="messageSearch" value="${escapeAttr(state.messageSearch)}" placeholder="search current conversation messages..." />
-      </div>
-      <div class="form-row filter-actions">
-        <label>&nbsp;</label>
-        <div class="actions"><button data-action="apply-message-filters">Apply</button><button data-action="clear-message-filters">Clear</button></div>
-      </div>
-    </div>
-    <div class="chat-layout">
-      <div class="panel">
-        <h2>Conversations</h2>
+    <div class="inbox-shell">
+      <aside class="inbox-sidebar panel">
+        <div class="inbox-sidebar-head">
+          <h2>Inbox</h2>
+          ${botSelector()}
+        </div>
+        <div class="inbox-search">
+          <input id="chatSearch" value="${escapeAttr(state.chatSearch)}" placeholder="Search conversations..." />
+          <select id="chatStatusFilter">
+            <option value="" ${state.chatStatusFilter === '' ? 'selected' : ''}>All</option>
+            <option value="auto" ${state.chatStatusFilter === 'auto' ? 'selected' : ''}>Auto</option>
+            <option value="manual" ${state.chatStatusFilter === 'manual' ? 'selected' : ''}>Manual</option>
+            <option value="blocked" ${state.chatStatusFilter === 'blocked' ? 'selected' : ''}>Blocked</option>
+          </select>
+          <input id="messageSearch" value="${escapeAttr(state.messageSearch)}" placeholder="Search messages..." />
+          <div class="actions"><button data-action="apply-message-filters">Apply</button><button data-action="clear-message-filters">Clear</button></div>
+        </div>
         <div class="chat-list">
           ${visibleChats().map(chatCard).join('') || '<div class="empty">No conversations match the current filters.</div>'}
         </div>
-      </div>
-      <div class="panel">
-        <h2>${chat ? chatTitle(chat) : 'Conversation'}</h2>
+      </aside>
+      <section class="conversation-panel panel">
+        ${chat ? conversationHeader(chat) : '<div class="conversation-empty-head"><h2>Conversation</h2><p class="muted">Select a conversation to view messages.</p></div>'}
         <div class="messages">
-          ${state.messages.map(messageBubble).join('') || '<div class="empty">Select a conversation.</div>'}
+          ${chat ? state.messages.map(messageBubble).join('') || '<div class="empty">No messages in this conversation.</div>' : '<div class="empty">Select a conversation.</div>'}
         </div>
         ${chat ? replyComposer(chat) : ''}
+      </section>
+      <aside class="customer-panel panel">
+        ${chat ? customerPanel(chat) : '<div class="empty">Customer details will appear here.</div>'}
+      </aside>
       </div>
     </div>
   `;
@@ -981,6 +975,53 @@ function messageBubble(message) {
       ${mediaPreview(message)}
     </div>
   `;
+}
+
+function conversationHeader(chat) {
+  return `
+    <div class="conversation-head">
+      <div class="customer-avatar">${escapeHtml(customerInitials(chat))}</div>
+      <div>
+        <h2>${escapeHtml(chatTitle(chat))}</h2>
+        <div class="muted">${escapeHtml(botName(chat.botId))} - ${escapeHtml(chat.type || 'private')} - ${formatTime(chat.lastMessageAt)}</div>
+      </div>
+      <div class="conversation-actions">
+        ${statusBadge(chat.status)}
+        <button data-action="set-chat-status" data-id="${chat.id}" data-status="manual">Manual</button>
+        <button data-action="set-chat-status" data-id="${chat.id}" data-status="auto">Auto</button>
+      </div>
+    </div>
+  `;
+}
+
+function customerPanel(chat) {
+  const conversationMessages = state.messages.filter((message) => String(message.chatId) === String(chat.chatId));
+  const userMessages = conversationMessages.filter((message) => message.role === 'user');
+  return `
+    <div class="customer-card">
+      <div class="customer-avatar large">${escapeHtml(customerInitials(chat))}</div>
+      <h2>${escapeHtml(chatTitle(chat))}</h2>
+      <p class="muted">${chat.username ? `@${escapeHtml(chat.username)}` : 'No username'}</p>
+    </div>
+    <div class="customer-facts">
+      <div><span>Chat ID</span><strong>${escapeHtml(chat.chatId)}</strong></div>
+      <div><span>Status</span><strong>${escapeHtml(chat.status)}</strong></div>
+      <div><span>Messages</span><strong>${conversationMessages.length}</strong></div>
+      <div><span>User Messages</span><strong>${userMessages.length}</strong></div>
+      <div><span>Last Seen</span><strong>${formatTime(chat.lastMessageAt)}</strong></div>
+    </div>
+    <div class="quick-replies">
+      <h3>Quick Actions</h3>
+      <button data-action="set-chat-status" data-id="${chat.id}" data-status="manual">Manual Takeover</button>
+      <button data-action="set-chat-status" data-id="${chat.id}" data-status="auto">Auto Reply</button>
+      <button class="danger" data-action="set-chat-status" data-id="${chat.id}" data-status="blocked">Block User</button>
+    </div>
+  `;
+}
+
+function customerInitials(chat) {
+  const source = chat.firstName || chat.username || String(chat.chatId || '?');
+  return source.slice(0, 2).toUpperCase();
 }
 
 function replyComposer(chat) {
