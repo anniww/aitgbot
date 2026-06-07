@@ -56,6 +56,8 @@ export default {
 async function routeApi(request, env, ctx, url) {
   try {
     if (url.pathname === '/api/dashboard' && request.method === 'GET') return getDashboard(env);
+    if (url.pathname === '/api/analytics' && request.method === 'GET') return getAnalytics(env, url.searchParams);
+    if (url.pathname === '/api/analytics/export' && request.method === 'GET') return exportAnalytics(env, url.searchParams);
     if (url.pathname === '/api/system-status' && request.method === 'GET') return getSystemStatus(env);
     if (url.pathname === '/api/deployment-readiness' && request.method === 'GET') return getDeploymentReadiness(env);
     if (url.pathname === '/api/system-logs' && request.method === 'GET') return json(await listSystemLogs(env));
@@ -158,6 +160,80 @@ async function getDashboard(env) {
     recentMessages: messages.slice(-10).reverse(),
     recentIssues: logs.filter((log) => log.level === 'error' || log.level === 'warn').slice(0, 8)
   });
+}
+
+async function getAnalytics(env, params) {
+  const botId = params.get('botId') || '';
+  const days = Math.max(1, Math.min(365, Number(params.get('days') || 30)));
+  const start = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
+  const binds = [start];
+  let where = "role = 'user' AND substr(created_at, 1, 10) >= ?";
+  if (botId) {
+    where += ' AND bot_id = ?';
+    binds.push(botId);
+  }
+  const daily = await env.DB.prepare(
+    `SELECT substr(created_at, 1, 10) AS date,
+            bot_id AS botId,
+            COUNT(*) AS messageCount,
+            COUNT(DISTINCT chat_id) AS uniqueUserCount
+     FROM messages
+     WHERE ${where}
+     GROUP BY date, bot_id
+     ORDER BY date DESC, bot_id ASC`
+  )
+    .bind(...binds)
+    .all();
+  const totals = await env.DB.prepare(
+    `SELECT COUNT(*) AS messageCount,
+            COUNT(DISTINCT bot_id || ':' || chat_id) AS uniqueUserCount,
+            COUNT(DISTINCT bot_id) AS botCount
+     FROM messages
+     WHERE ${where}`
+  )
+    .bind(...binds)
+    .first();
+  const bots = await listBots(env);
+  const botMap = Object.fromEntries(bots.map((bot) => [bot.id, bot.name]));
+  return json({
+    botId,
+    days,
+    start,
+    generatedAt: new Date().toISOString(),
+    totals: {
+      messageCount: Number(totals?.messageCount || 0),
+      uniqueUserCount: Number(totals?.uniqueUserCount || 0),
+      botCount: Number(totals?.botCount || 0)
+    },
+    rows: (daily.results || []).map((row) => ({
+      date: row.date,
+      botId: row.botId,
+      botName: botMap[row.botId] || row.botId,
+      messageCount: Number(row.messageCount || 0),
+      uniqueUserCount: Number(row.uniqueUserCount || 0)
+    }))
+  });
+}
+
+async function exportAnalytics(env, params) {
+  const response = await getAnalytics(env, params);
+  const data = await response.json();
+  const rows = [
+    ['date', 'bot_id', 'bot_name', 'message_count', 'unique_user_count'],
+    ...data.rows.map((row) => [row.date, row.botId, row.botName, row.messageCount, row.uniqueUserCount])
+  ];
+  const csv = rows.map((row) => row.map(csvCell).join(',')).join('\n');
+  return text(csv, {
+    headers: {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="tg-bot-analytics-${new Date().toISOString().slice(0, 10)}.csv"`
+    }
+  });
+}
+
+function csvCell(value) {
+  const textValue = String(value ?? '');
+  return /[",\n]/.test(textValue) ? `"${textValue.replace(/"/g, '""')}"` : textValue;
 }
 
 function getSystemStatus(env) {

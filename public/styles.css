@@ -731,6 +731,14 @@ textarea {
   box-shadow: var(--shadow-sm);
 }
 
+.analytics-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 180px auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
 .table {
   width: 100%;
   min-width: 680px;

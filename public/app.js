@@ -15,6 +15,9 @@ const state = {
   systemStatus: null,
   aiConfig: null,
   deploymentReadiness: null,
+  analytics: null,
+  analyticsDays: localStorage.getItem('tg_analytics_days') || '30',
+  analyticsBotId: localStorage.getItem('tg_analytics_bot_id') || '',
   dashboard: null,
   selectedBotId: '',
   selectedChatId: '',
@@ -38,6 +41,7 @@ const state = {
 
 const pages = [
   ['dashboard', 'Dashboard', 'DB'],
+  ['analytics', 'Analytics', 'AN'],
   ['bots', 'Bots', 'BT'],
   ['messages', 'Messages', 'IN'],
   ['rules', 'Replies', 'RP'],
@@ -169,6 +173,7 @@ async function refreshAll() {
     state.deploymentReadiness = deploymentReadiness;
     if (!state.selectedBotId && bots[0]) state.selectedBotId = bots[0].id;
     await refreshScoped();
+    await refreshAnalytics().catch(() => {});
     rememberMessages(state.messages);
     render();
   } catch (error) {
@@ -197,6 +202,13 @@ async function refreshMessages() {
   if (state.selectedChatId) params.set('chatId', state.selectedChatId);
   if (state.messageSearch) params.set('search', state.messageSearch);
   state.messages = await api(`/api/messages?${params.toString()}`);
+}
+
+async function refreshAnalytics() {
+  const params = new URLSearchParams();
+  if (state.analyticsBotId) params.set('botId', state.analyticsBotId);
+  params.set('days', state.analyticsDays || '30');
+  state.analytics = await api(`/api/analytics?${params.toString()}`);
 }
 
 function startRealtime() {
@@ -386,6 +398,7 @@ function loginView() {
 
 function pageView() {
   if (state.page === 'dashboard') return dashboardView();
+  if (state.page === 'analytics') return analyticsView();
   if (state.page === 'bots') return botsView();
   if (state.page === 'messages') return messagesView();
   if (state.page === 'rules') return repliesView();
@@ -443,6 +456,51 @@ function dashboardView() {
     <div class="panel" style="margin-top:16px;">
       <h2>Recent Issues</h2>
       ${(d.recentIssues || []).map(issueLine).join('') || '<div class="empty">No recent warnings or errors.</div>'}
+    </div>
+  `;
+}
+
+function analyticsView() {
+  const data = state.analytics || { totals: {}, rows: [] };
+  return `
+    ${pageHead('Analytics', 'Daily user-message counts and deduplicated user counts by all bots or one bot.', '<button class="primary" data-action="export-analytics">Export CSV</button>')}
+    <div class="panel analytics-toolbar">
+      <div class="form-row">
+        <label>Bot Scope</label>
+        <select id="analyticsBotId">
+          <option value="" ${state.analyticsBotId === '' ? 'selected' : ''}>All Bots</option>
+          ${state.bots.map((bot) => `<option value="${bot.id}" ${state.analyticsBotId === bot.id ? 'selected' : ''}>${escapeHtml(bot.name)} ${bot.username ? `(@${escapeHtml(bot.username)})` : ''}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Days</label>
+        <select id="analyticsDays">
+          ${['7', '14', '30', '90', '180', '365'].map((days) => `<option value="${days}" ${state.analyticsDays === days ? 'selected' : ''}>Last ${days} days</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row filter-actions">
+        <label>&nbsp;</label>
+        <div class="actions"><button data-action="refresh-analytics">Apply</button></div>
+      </div>
+    </div>
+    <div class="grid cols-3">
+      ${statCard('User Messages', data.totals.messageCount || 0)}
+      ${statCard('Deduped Users', data.totals.uniqueUserCount || 0)}
+      ${statCard('Bots Included', data.totals.botCount || (state.analyticsBotId ? 1 : 0))}
+    </div>
+    <div class="panel" style="margin-top:16px;">
+      <h2>Daily Breakdown</h2>
+      <table class="table">
+        <thead><tr><th>Date</th><th>Bot</th><th>User Messages</th><th>Deduped Users</th></tr></thead>
+        <tbody>${(data.rows || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.date)}</td>
+            <td>${escapeHtml(row.botName || row.botId)}</td>
+            <td>${row.messageCount || 0}</td>
+            <td>${row.uniqueUserCount || 0}</td>
+          </tr>
+        `).join('') || '<tr><td colspan="4" class="empty">No analytics data yet.</td></tr>'}</tbody>
+      </table>
     </div>
   `;
 }
@@ -1488,6 +1546,41 @@ function bindPage() {
   bindMenuActions();
   bindDataActions();
   bindDiagnostics();
+  bindAnalyticsActions();
+}
+
+function bindAnalyticsActions() {
+  document.querySelector('[data-action="refresh-analytics"]')?.addEventListener('click', applyAnalyticsFilters);
+  document.querySelector('#analyticsBotId')?.addEventListener('change', applyAnalyticsFilters);
+  document.querySelector('#analyticsDays')?.addEventListener('change', applyAnalyticsFilters);
+  document.querySelector('[data-action="export-analytics"]')?.addEventListener('click', exportAnalytics);
+}
+
+async function applyAnalyticsFilters() {
+  state.analyticsBotId = document.querySelector('#analyticsBotId')?.value || '';
+  state.analyticsDays = document.querySelector('#analyticsDays')?.value || '30';
+  localStorage.setItem('tg_analytics_bot_id', state.analyticsBotId);
+  localStorage.setItem('tg_analytics_days', state.analyticsDays);
+  await refreshAnalytics();
+  render();
+}
+
+async function exportAnalytics() {
+  const params = new URLSearchParams();
+  if (state.analyticsBotId) params.set('botId', state.analyticsBotId);
+  params.set('days', state.analyticsDays || '30');
+  const response = await fetch(`/api/analytics/export?${params.toString()}`, {
+    headers: { 'x-admin-password': state.password }
+  });
+  if (!response.ok) return notify('Analytics export failed');
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `tg-bot-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+  notify('Analytics exported');
 }
 
 function bindBotActions() {
