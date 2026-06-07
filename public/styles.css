@@ -733,10 +733,16 @@ textarea {
 
 .analytics-toolbar {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 180px auto;
+  grid-template-columns: minmax(240px, 1fr) 190px 160px 160px auto;
   gap: 12px;
   align-items: end;
   margin-bottom: 16px;
+}
+
+.analytics-summary {
+  margin-top: 16px;
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .table {

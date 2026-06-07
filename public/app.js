@@ -16,7 +16,9 @@ const state = {
   aiConfig: null,
   deploymentReadiness: null,
   analytics: null,
-  analyticsDays: localStorage.getItem('tg_analytics_days') || '30',
+  analyticsRange: localStorage.getItem('tg_analytics_range') || 'last30',
+  analyticsStartDate: localStorage.getItem('tg_analytics_start_date') || '',
+  analyticsEndDate: localStorage.getItem('tg_analytics_end_date') || '',
   analyticsBotId: localStorage.getItem('tg_analytics_bot_id') || '',
   dashboard: null,
   selectedBotId: '',
@@ -207,8 +209,19 @@ async function refreshMessages() {
 async function refreshAnalytics() {
   const params = new URLSearchParams();
   if (state.analyticsBotId) params.set('botId', state.analyticsBotId);
-  params.set('days', state.analyticsDays || '30');
+  appendAnalyticsParams(params);
   state.analytics = await api(`/api/analytics?${params.toString()}`);
+}
+
+function appendAnalyticsParams(params) {
+  const range = state.analyticsRange || 'last30';
+  params.set('range', range);
+  if (range === 'custom') {
+    if (state.analyticsStartDate) params.set('startDate', state.analyticsStartDate);
+    if (state.analyticsEndDate) params.set('endDate', state.analyticsEndDate);
+  } else if (range.startsWith('last')) {
+    params.set('days', range.replace('last', ''));
+  }
 }
 
 function startRealtime() {
@@ -473,10 +486,28 @@ function analyticsView() {
         </select>
       </div>
       <div class="form-row">
-        <label>Days</label>
-        <select id="analyticsDays">
-          ${['7', '14', '30', '90', '180', '365'].map((days) => `<option value="${days}" ${state.analyticsDays === days ? 'selected' : ''}>Last ${days} days</option>`).join('')}
+        <label>Date Range</label>
+        <select id="analyticsRange">
+          ${[
+            ['today', 'Today'],
+            ['yesterday', 'Yesterday'],
+            ['last7', 'Last 7 days'],
+            ['last14', 'Last 14 days'],
+            ['last30', 'Last 30 days'],
+            ['last90', 'Last 90 days'],
+            ['last180', 'Last 180 days'],
+            ['last365', 'Last 365 days'],
+            ['custom', 'Custom dates']
+          ].map(([value, label]) => `<option value="${value}" ${state.analyticsRange === value ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
+      </div>
+      <div class="form-row">
+        <label>Start Date</label>
+        <input id="analyticsStartDate" type="date" value="${escapeAttr(state.analyticsStartDate)}" ${state.analyticsRange === 'custom' ? '' : 'disabled'} />
+      </div>
+      <div class="form-row">
+        <label>End Date</label>
+        <input id="analyticsEndDate" type="date" value="${escapeAttr(state.analyticsEndDate)}" ${state.analyticsRange === 'custom' ? '' : 'disabled'} />
       </div>
       <div class="form-row filter-actions">
         <label>&nbsp;</label>
@@ -487,6 +518,9 @@ function analyticsView() {
       ${statCard('User Messages', data.totals.messageCount || 0)}
       ${statCard('Deduped Users', data.totals.uniqueUserCount || 0)}
       ${statCard('Bots Included', data.totals.botCount || (state.analyticsBotId ? 1 : 0))}
+    </div>
+    <div class="panel analytics-summary">
+      Showing ${escapeHtml(data.startDate || '-')} to ${escapeHtml(data.endDate || '-')}
     </div>
     <div class="panel" style="margin-top:16px;">
       <h2>Daily Breakdown</h2>
@@ -1552,15 +1586,21 @@ function bindPage() {
 function bindAnalyticsActions() {
   document.querySelector('[data-action="refresh-analytics"]')?.addEventListener('click', applyAnalyticsFilters);
   document.querySelector('#analyticsBotId')?.addEventListener('change', applyAnalyticsFilters);
-  document.querySelector('#analyticsDays')?.addEventListener('change', applyAnalyticsFilters);
+  document.querySelector('#analyticsRange')?.addEventListener('change', applyAnalyticsFilters);
+  document.querySelector('#analyticsStartDate')?.addEventListener('change', applyAnalyticsFilters);
+  document.querySelector('#analyticsEndDate')?.addEventListener('change', applyAnalyticsFilters);
   document.querySelector('[data-action="export-analytics"]')?.addEventListener('click', exportAnalytics);
 }
 
 async function applyAnalyticsFilters() {
   state.analyticsBotId = document.querySelector('#analyticsBotId')?.value || '';
-  state.analyticsDays = document.querySelector('#analyticsDays')?.value || '30';
+  state.analyticsRange = document.querySelector('#analyticsRange')?.value || 'last30';
+  state.analyticsStartDate = document.querySelector('#analyticsStartDate')?.value || '';
+  state.analyticsEndDate = document.querySelector('#analyticsEndDate')?.value || '';
   localStorage.setItem('tg_analytics_bot_id', state.analyticsBotId);
-  localStorage.setItem('tg_analytics_days', state.analyticsDays);
+  localStorage.setItem('tg_analytics_range', state.analyticsRange);
+  localStorage.setItem('tg_analytics_start_date', state.analyticsStartDate);
+  localStorage.setItem('tg_analytics_end_date', state.analyticsEndDate);
   await refreshAnalytics();
   render();
 }
@@ -1568,7 +1608,7 @@ async function applyAnalyticsFilters() {
 async function exportAnalytics() {
   const params = new URLSearchParams();
   if (state.analyticsBotId) params.set('botId', state.analyticsBotId);
-  params.set('days', state.analyticsDays || '30');
+  appendAnalyticsParams(params);
   const response = await fetch(`/api/analytics/export?${params.toString()}`, {
     headers: { 'x-admin-password': state.password }
   });

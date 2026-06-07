@@ -164,10 +164,9 @@ async function getDashboard(env) {
 
 async function getAnalytics(env, params) {
   const botId = params.get('botId') || '';
-  const days = Math.max(1, Math.min(365, Number(params.get('days') || 30)));
-  const start = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
-  const binds = [start];
-  let where = "role = 'user' AND substr(created_at, 1, 10) >= ?";
+  const range = resolveAnalyticsRange(params);
+  const binds = [range.startDate, range.endDate];
+  let where = "role = 'user' AND substr(created_at, 1, 10) >= ? AND substr(created_at, 1, 10) <= ?";
   if (botId) {
     where += ' AND bot_id = ?';
     binds.push(botId);
@@ -197,8 +196,9 @@ async function getAnalytics(env, params) {
   const botMap = Object.fromEntries(bots.map((bot) => [bot.id, bot.name]));
   return json({
     botId,
-    days,
-    start,
+    range: range.key,
+    startDate: range.startDate,
+    endDate: range.endDate,
     generatedAt: new Date().toISOString(),
     totals: {
       messageCount: Number(totals?.messageCount || 0),
@@ -213,6 +213,36 @@ async function getAnalytics(env, params) {
       uniqueUserCount: Number(row.uniqueUserCount || 0)
     }))
   });
+}
+
+function resolveAnalyticsRange(params) {
+  const key = params.get('range') || '';
+  const today = new Date();
+  const todayText = dateOnly(today);
+  const yesterdayText = dateOnly(new Date(today.getTime() - 86400000));
+  if (key === 'today') return { key, startDate: todayText, endDate: todayText };
+  if (key === 'yesterday') return { key, startDate: yesterdayText, endDate: yesterdayText };
+  if (key === 'custom') {
+    const startDate = normalizeDate(params.get('startDate')) || todayText;
+    const endDate = normalizeDate(params.get('endDate')) || startDate;
+    return startDate <= endDate
+      ? { key, startDate, endDate }
+      : { key, startDate: endDate, endDate: startDate };
+  }
+  const days = Math.max(1, Math.min(365, Number(params.get('days') || key.replace('last', '') || 30)));
+  return {
+    key: `last${days}`,
+    startDate: dateOnly(new Date(today.getTime() - (days - 1) * 86400000)),
+    endDate: todayText
+  };
+}
+
+function dateOnly(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value : '';
 }
 
 async function exportAnalytics(env, params) {
