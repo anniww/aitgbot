@@ -357,10 +357,21 @@ function currentPageLabel() {
 
 function loginView() {
   return `
-    <div class="content" style="max-width:480px;margin:10vh auto;">
-      <div class="panel">
-        <h1 class="page-title">TG Bot Admin</h1>
-        <p class="page-subtitle">Enter the local admin password to continue.</p>
+    <div class="login-shell">
+      <div class="login-art">
+        <div class="art-phone">
+          <div class="art-chat user"></div>
+          <div class="art-chat bot"></div>
+          <div class="art-chat user short"></div>
+          <div class="art-composer"></div>
+        </div>
+        <div class="art-orbit one"></div>
+        <div class="art-orbit two"></div>
+      </div>
+      <div class="login-card panel">
+        <div class="login-brand">TG Bot Admin</div>
+        <h1 class="page-title">Telegram Support Console</h1>
+        <p class="page-subtitle">Manage bots, AI replies, broadcasts, customer chats, and business knowledge in one private workspace.</p>
         <div class="form-row">
           <label>Admin Password</label>
           <input id="passwordInput" type="password" placeholder="Default: admin123" />
@@ -961,8 +972,11 @@ function chatCard(chat) {
   const active = String(chat.chatId) === String(state.selectedChatId);
   return `
     <div class="chat-card ${active ? 'active' : ''}" data-action="select-chat" data-chat-id="${chat.chatId}">
-      <strong>${chatTitle(chat)}</strong>
-      <div class="muted">${chat.status} - ${formatTime(chat.lastMessageAt)}</div>
+      ${customerAvatar(chat)}
+      <div class="chat-card-main">
+        <strong>${chatTitle(chat)}</strong>
+        <div class="muted">${chat.status} - ${formatTime(chat.lastMessageAt)}</div>
+      </div>
     </div>
   `;
 }
@@ -980,7 +994,7 @@ function messageBubble(message) {
 function conversationHeader(chat) {
   return `
     <div class="conversation-head">
-      <div class="customer-avatar">${escapeHtml(customerInitials(chat))}</div>
+      ${customerAvatar(chat)}
       <div>
         <h2>${escapeHtml(chatTitle(chat))}</h2>
         <div class="muted">${escapeHtml(botName(chat.botId))} - ${escapeHtml(chat.type || 'private')} - ${formatTime(chat.lastMessageAt)}</div>
@@ -999,7 +1013,7 @@ function customerPanel(chat) {
   const userMessages = conversationMessages.filter((message) => message.role === 'user');
   return `
     <div class="customer-card">
-      <div class="customer-avatar large">${escapeHtml(customerInitials(chat))}</div>
+      ${customerAvatar(chat, 'large')}
       <h2>${escapeHtml(chatTitle(chat))}</h2>
       <p class="muted">${chat.username ? `@${escapeHtml(chat.username)}` : 'No username'}</p>
     </div>
@@ -1022,6 +1036,14 @@ function customerPanel(chat) {
 function customerInitials(chat) {
   const source = chat.firstName || chat.username || String(chat.chatId || '?');
   return source.slice(0, 2).toUpperCase();
+}
+
+function customerAvatar(chat, size = '') {
+  const cls = `customer-avatar ${size}`.trim();
+  if (chat.avatarUrl) {
+    return `<img class="${cls}" src="${escapeAttr(chat.avatarUrl)}" alt="${escapeAttr(chatTitle(chat))}" loading="lazy" />`;
+  }
+  return `<div class="${cls}">${escapeHtml(customerInitials(chat))}</div>`;
 }
 
 function replyComposer(chat) {

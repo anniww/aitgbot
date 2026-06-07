@@ -1,0 +1,2 @@
+ALTER TABLE chats ADD COLUMN avatar_file_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE chats ADD COLUMN avatar_updated_at TEXT NOT NULL DEFAULT '';

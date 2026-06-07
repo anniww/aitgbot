@@ -40,6 +40,7 @@ export default {
     if (url.pathname === '/api/health') return health(env);
     if (url.pathname === '/api/bootstrap') return json({ needsPassword: true, runtime: 'cloudflare' });
     if (url.pathname === '/api/telegram/webhook') return handleTelegramWebhook(request, env, ctx, url);
+    if (url.pathname === '/api/avatar') return serveTelegramAvatar(request, env, url);
 
     if (url.pathname.startsWith('/api/')) {
       const auth = requireAdmin(request, env);
@@ -537,6 +538,8 @@ async function listChats(env, params) {
     username: row.username,
     firstName: row.first_name,
     lastName: row.last_name,
+    avatarFileId: row.avatar_file_id || '',
+    avatarUrl: row.avatar_file_id ? `/api/avatar?botId=${encodeURIComponent(row.bot_id)}&fileId=${encodeURIComponent(row.avatar_file_id)}` : '',
     type: row.type,
     status: row.status,
     lastMessageAt: row.last_message_at,
@@ -597,6 +600,8 @@ async function updateChat(request, env, id) {
     username: row.username,
     firstName: row.first_name,
     lastName: row.last_name,
+    avatarFileId: row.avatar_file_id || '',
+    avatarUrl: row.avatar_file_id ? `/api/avatar?botId=${encodeURIComponent(row.bot_id)}&fileId=${encodeURIComponent(row.avatar_file_id)}` : '',
     type: row.type,
     status: row.status,
     lastMessageAt: row.last_message_at,
@@ -1166,6 +1171,28 @@ async function telegramApi(token, method, payload = null) {
   return data.result;
 }
 
+async function serveTelegramAvatar(request, env, url) {
+  const botId = url.searchParams.get('botId') || '';
+  const fileId = url.searchParams.get('fileId') || '';
+  if (!botId || !fileId) return text('Avatar not found', { status: 404 });
+  const bot = await getBot(env, botId);
+  if (!bot) return text('Bot not found', { status: 404 });
+  try {
+    const file = await telegramApi(bot.token, 'getFile', { file_id: fileId });
+    if (!file?.file_path) return text('Avatar file not found', { status: 404 });
+    const fileResponse = await fetch(`https://api.telegram.org/file/bot${bot.token}/${file.file_path}`);
+    if (!fileResponse.ok) return text('Avatar download failed', { status: 502 });
+    return new Response(fileResponse.body, {
+      headers: {
+        'content-type': fileResponse.headers.get('content-type') || 'image/jpeg',
+        'cache-control': 'public, max-age=86400'
+      }
+    });
+  } catch {
+    return text('Avatar unavailable', { status: 404 });
+  }
+}
+
 async function handleTelegramWebhook(request, env, ctx, url) {
   if (request.method !== 'POST') return json({ error: 'METHOD_NOT_ALLOWED' }, { status: 405 });
 
@@ -1236,13 +1263,15 @@ async function handleIncomingMessage(env, bot, message) {
   if (!chatId) return;
   const textValue = message.text || message.caption || incomingMediaLabel(message);
   const media = extractIncomingMedia(message);
+  const avatarFileId = await getTelegramAvatarFileId(bot, message.from?.id).catch(() => '');
   await upsertChat(env, {
     botId: bot.id,
     chatId,
     username: chat.username || '',
     firstName: chat.first_name || '',
     lastName: chat.last_name || '',
-    type: chat.type || 'private'
+    type: chat.type || 'private',
+    avatarFileId
   });
   await insertMessage(env, {
     botId: bot.id,
@@ -1302,13 +1331,15 @@ async function handleIncomingCallback(env, bot, query) {
   const data = query.data || '';
   if (!chatId) return;
   await telegramApi(bot.token, 'answerCallbackQuery', { callback_query_id: query.id }).catch(() => null);
+  const avatarFileId = await getTelegramAvatarFileId(bot, query.from?.id).catch(() => '');
   await upsertChat(env, {
     botId: bot.id,
     chatId,
     username: query.from?.username || '',
     firstName: query.from?.first_name || '',
     lastName: query.from?.last_name || '',
-    type: query.message?.chat?.type || 'private'
+    type: query.message?.chat?.type || 'private',
+    avatarFileId
   });
   await insertMessage(env, {
     botId: bot.id,
@@ -1335,12 +1366,19 @@ async function upsertChat(env, input) {
   const now = new Date().toISOString();
   const id = `${input.botId}:${input.chatId}`;
   await env.DB.prepare(
-    `INSERT INTO chats (id, bot_id, chat_id, username, first_name, last_name, type, status, last_message_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(bot_id, chat_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, type=excluded.type, last_message_at=excluded.last_message_at, updated_at=excluded.updated_at`
+    `INSERT INTO chats (id, bot_id, chat_id, username, first_name, last_name, type, status, avatar_file_id, avatar_updated_at, last_message_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(bot_id, chat_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name, type=excluded.type, avatar_file_id=COALESCE(NULLIF(excluded.avatar_file_id, ''), avatar_file_id), avatar_updated_at=CASE WHEN excluded.avatar_file_id != '' THEN excluded.avatar_updated_at ELSE avatar_updated_at END, last_message_at=excluded.last_message_at, updated_at=excluded.updated_at`
   )
-    .bind(id, input.botId, input.chatId, input.username || '', input.firstName || '', input.lastName || '', input.type || 'private', 'auto', now, now, now)
+    .bind(id, input.botId, input.chatId, input.username || '', input.firstName || '', input.lastName || '', input.type || 'private', 'auto', input.avatarFileId || '', input.avatarFileId ? now : '', now, now, now)
     .run();
+}
+
+async function getTelegramAvatarFileId(bot, userId) {
+  if (!userId) return '';
+  const photos = await telegramApi(bot.token, 'getUserProfilePhotos', { user_id: userId, limit: 1 });
+  const sizes = photos?.photos?.[0] || [];
+  return sizes[sizes.length - 1]?.file_id || '';
 }
 
 async function getChatByBotChat(env, botId, chatId) {
