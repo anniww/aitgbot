@@ -339,7 +339,6 @@ function render() {
             <strong>Bot Workspace</strong>
             <small>Private Bot Console</small>
           </span>
-          <span class="chevron">v</span>
         </div>
         <label class="global-search">
           <span>${navIcon('search')}</span>
@@ -353,7 +352,7 @@ function render() {
         </div>
         <div class="top-actions">
           <button class="icon-button" data-action="refresh" title="Refresh">${navIcon('refresh')}</button>
-          <button class="icon-button" data-action="toggle-sound" title="${state.soundEnabled ? 'Sound on' : 'Sound off'}">${navIcon(state.soundEnabled ? 'bell' : 'bell-off')}<b>${state.soundEnabled ? '3' : ''}</b></button>
+          <button class="icon-button" data-action="toggle-sound" title="${state.soundEnabled ? 'Sound on' : 'Sound off'}">${navIcon(state.soundEnabled ? 'bell' : 'bell-off')}${state.notification ? '<b>1</b>' : ''}</button>
           <label class="volume-control" title="Message sound volume">
             <input id="soundVolume" type="range" min="0" max="100" value="${state.soundVolume}" />
           </label>
@@ -377,8 +376,7 @@ function render() {
         </nav>
         <div class="sidebar-workspace">
           <span>${navIcon('building')}</span>
-          <div><strong>Bot Workspace</strong><small>${state.bots.length} bots 路 ${state.chats.length} chats</small></div>
-          <i>v</i>
+          <div><strong>Bot Workspace</strong><small>${state.bots.length} bots / ${state.chats.length} chats</small></div>
         </div>
       </aside>
       <main class="content">${pageView()}</main>
@@ -405,28 +403,28 @@ function currentPageLabel() {
 }
 
 function navIcon(name) {
-  const icons = {
-    grid: 'DB',
-    chart: 'AN',
-    bot: 'BT',
-    mail: 'IN',
-    chat: 'RP',
-    list: 'MN',
-    spark: 'AI',
-    users: 'US',
-    send: 'BC',
-    image: 'MD',
-    file: 'LG',
-    data: 'DA',
-    pulse: 'DX',
-    gear: 'ST',
-    search: 'SE',
-    refresh: 'RF',
-    bell: 'NT',
-    'bell-off': 'NT',
-    building: 'WK'
+  const paths = {
+    grid: '<path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/>',
+    chart: '<path d="M4 19V5M4 19h17M8 16V9M13 16V6M18 16v-4"/>',
+    bot: '<path d="M7 9h10a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3z"/><path d="M12 9V5M9 14h.01M15 14h.01M9 5h6"/>',
+    mail: '<path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/>',
+    chat: '<path d="M5 6h14v10H8l-3 3z"/>',
+    list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+    spark: '<path d="M12 3l2.2 6.1L20 12l-5.8 2.9L12 21l-2.2-6.1L4 12l5.8-2.9z"/>',
+    users: '<path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 21a6 6 0 0 1 12 0"/><path d="M17 11a3 3 0 1 0 0-6M17 14a5 5 0 0 1 5 5"/>',
+    send: '<path d="M21 3 10 14M21 3l-7 20-4-9-9-4z"/>',
+    image: '<path d="M4 5h16v14H4z"/><path d="m8 14 2.5-3 3 4L16 12l4 5M8 9h.01"/>',
+    file: '<path d="M6 3h9l5 5v13H6z"/><path d="M14 3v6h6M9 14h7M9 18h7"/>',
+    data: '<path d="M12 4c4 0 7 1.3 7 3s-3 3-7 3-7-1.3-7-3 3-3 7-3z"/><path d="M5 7v10c0 1.7 3 3 7 3s7-1.3 7-3V7"/><path d="M5 12c0 1.7 3 3 7 3s7-1.3 7-3"/>',
+    pulse: '<path d="M4 13h4l2-7 4 14 2-7h4"/>',
+    gear: '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/><path d="M4 12h2M18 12h2M12 4v2M12 18v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/>',
+    search: '<path d="M10 18a8 8 0 1 1 5.7-2.3L21 21"/>',
+    refresh: '<path d="M20 12a8 8 0 0 1-13.7 5.7M4 12A8 8 0 0 1 17.7 6.3"/><path d="M20 5v7h-7M4 19v-7h7"/>',
+    bell: '<path d="M18 16H6l2-2v-4a4 4 0 0 1 8 0v4z"/><path d="M10 19h4"/>',
+    'bell-off': '<path d="M18 16H6l2-2v-4a4 4 0 0 1 8 0v4z"/><path d="m4 4 16 16"/>',
+    building: '<path d="M5 21V4h14v17M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1M3 21h18"/>'
   };
-  return icons[name] || '..';
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.grid}</svg>`;
 }
 
 function loginView() {
@@ -522,7 +520,7 @@ function dashboardView() {
         <button class="link-action" data-page-jump="messages">View all conversations</button>
       </div>
       <div class="panel broadcast-panel">
-        <div class="panel-head"><h2>Broadcast Performance</h2><button data-page-jump="analytics">Last 7 days</button></div>
+        <div class="panel-head"><h2>Broadcast Performance</h2><button data-page-jump="analytics">Open analytics</button></div>
         <div class="chart-card">
           <div class="chart-lines"><span></span><span></span><span></span><span></span></div>
           <div class="chart-path"></div>
@@ -531,11 +529,11 @@ function dashboardView() {
       <div class="panel quick-panel">
         <h2>Quick Actions</h2>
         <div class="quick-action-grid">
-          <button data-page-jump="bots"><span>${navIcon('bot')}</span>Create Bot</button>
+          <button data-modal="bot"><span>${navIcon('bot')}</span>Create Bot</button>
           <button data-page-jump="messages"><span>${navIcon('mail')}</span>Open Inbox</button>
-          <button data-page-jump="broadcasts"><span>${navIcon('send')}</span>New Broadcast</button>
+          <button data-modal="broadcast"><span>${navIcon('send')}</span>New Broadcast</button>
           <button data-page-jump="diagnostics"><span>${navIcon('pulse')}</span>Diagnose</button>
-          <button data-page-jump="logs"><span>${navIcon('file')}</span>Export Logs</button>
+          <button data-page-jump="logs"><span>${navIcon('file')}</span>View Logs</button>
         </div>
       </div>
       <div class="panel diagnostics-strip">

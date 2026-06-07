@@ -288,15 +288,15 @@ textarea {
   padding: 0 10px 3px;
 }
 
-.nav-item:nth-child(4),
-.nav-item:nth-child(9),
-.nav-item:nth-child(12) {
+.nav-item:nth-child(5),
+.nav-item:nth-child(10),
+.nav-item:nth-child(14) {
   margin-top: 10px;
 }
 
-.nav-item:nth-child(4)::after,
-.nav-item:nth-child(9)::after,
-.nav-item:nth-child(12)::after {
+.nav-item:nth-child(5)::after,
+.nav-item:nth-child(10)::after,
+.nav-item:nth-child(14)::after {
   content: "";
   position: absolute;
   left: 10px;
@@ -364,6 +364,38 @@ textarea {
   font-weight: 900;
   letter-spacing: .04em;
   flex: 0 0 auto;
+}
+
+svg {
+  width: 1.15em;
+  height: 1.15em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-icon svg,
+.workspace-mark svg,
+.hero-title-mark svg,
+.stat-icon svg,
+.quick-action-grid svg,
+.icon-button svg,
+.global-search svg,
+.sidebar-workspace > span svg {
+  width: 20px;
+  height: 20px;
+}
+
+.hero-title-mark svg {
+  width: 26px;
+  height: 26px;
+}
+
+.stat-icon svg {
+  width: 24px;
+  height: 24px;
 }
 
 .nav-item.active .nav-icon {
