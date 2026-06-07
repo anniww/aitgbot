@@ -768,10 +768,18 @@ function settingsView() {
         <p class="muted">Used for password reset codes and new message email alerts.</p>
         <form id="adminSettingsForm" class="form-grid">
           <div class="form-row full"><label>Email</label><input name="adminEmail" type="email" value="${escapeAttr(settings.adminEmail || '')}" placeholder="you@example.com" /></div>
+          <div class="form-row full">
+            <label>Email API Key</label>
+            <input name="emailApiKey" type="password" autocomplete="off" placeholder="${settings.emailApiKeyMasked ? `Saved: ${escapeAttr(settings.emailApiKeyMasked)} - paste a new key to replace` : 'Paste Resend API key'}" />
+          </div>
+          <div class="form-row full">
+            <label>From Address</label>
+            <input name="emailFrom" value="${escapeAttr(settings.emailFrom || '')}" placeholder="TG Bot Admin <notify@yourdomain.com>" />
+          </div>
           <label class="check-row form-row full">
             <input type="checkbox" name="emailNotifications" value="true" ${settings.emailNotifications ? 'checked' : ''} />
             <span>Send email when a new Telegram message arrives</span>
-            <small>${settings.emailProviderConfigured ? 'Email provider is configured.' : 'Set RESEND_API_KEY in Cloudflare secrets before alerts can be sent.'}</small>
+            <small>${settings.emailProviderConfigured ? 'Email provider is configured.' : 'Paste an Email API Key above before alerts can be sent.'}</small>
           </label>
           <div class="actions"><button class="primary">Save Email Settings</button></div>
         </form>
@@ -793,10 +801,9 @@ function settingsView() {
         ${statusItem('Message Alerts', settings.emailNotifications ? 'Enabled' : 'Disabled', Boolean(settings.emailNotifications))}
         ${statusItem('Resend API', settings.emailProviderConfigured ? 'Configured' : 'Missing', Boolean(settings.emailProviderConfigured))}
       </div>
-      <pre class="code-note">Cloudflare secret needed for sending email:
-RESEND_API_KEY = your Resend API key
-Optional:
-EMAIL_FROM = TG Bot Admin &lt;notify@yourdomain.com&gt;</pre>
+      <pre class="code-note">Email provider: Resend-compatible API
+API Key: saved securely in D1 settings
+From: ${escapeHtml(settings.emailFrom || 'TG Bot Admin <onboarding@resend.dev>')}</pre>
     </div>
   `;
 }
@@ -1486,7 +1493,7 @@ function passwordResetView() {
         <div class="actions full"><button class="primary">Reset Password</button></div>
       </form>
     </div>
-    <p class="muted">Reset codes require a bound admin email and RESEND_API_KEY configured in Cloudflare.</p>
+    <p class="muted">Reset codes require a bound admin email and a saved Email API Key in Settings.</p>
   `;
 }
 
@@ -2229,6 +2236,8 @@ async function saveAdminSettings(event) {
       method: 'PUT',
       body: JSON.stringify({
         adminEmail: data.adminEmail || '',
+        emailApiKey: data.emailApiKey || '',
+        emailFrom: data.emailFrom || '',
         emailNotifications: data.emailNotifications === 'true'
       })
     });

@@ -137,12 +137,15 @@ async function requireAdmin(request, env) {
 }
 
 async function getAdminSettings(env) {
+  const emailConfig = await resolveEmailConfig(env);
   return {
     adminEmail: await getSetting(env, 'admin_email'),
     emailNotifications: (await getSetting(env, 'email_notifications')) === 'true',
     passwordConfigured: Boolean(await getSetting(env, 'admin_password_hash') || env.ADMIN_PASSWORD),
-    emailProviderConfigured: Boolean(env.RESEND_API_KEY),
-    emailFrom: env.EMAIL_FROM || 'TG Bot Admin <onboarding@resend.dev>'
+    emailProviderConfigured: Boolean(emailConfig.apiKey),
+    emailApiKeyMasked: maskSecret(emailConfig.apiKey),
+    emailFrom: emailConfig.from,
+    emailBaseURL: emailConfig.baseURL
   };
 }
 
@@ -154,8 +157,12 @@ async function updateAdminSettings(request, env) {
   const body = await readJson(request);
   const email = String(body.adminEmail || '').trim();
   if (email && !isValidEmail(email)) return json({ error: 'Valid email is required' }, { status: 400 });
+  const emailFrom = String(body.emailFrom || '').trim();
+  const emailApiKey = String(body.emailApiKey || '').trim();
   await setSetting(env, 'admin_email', email);
   await setSetting(env, 'email_notifications', body.emailNotifications ? 'true' : 'false');
+  await setSetting(env, 'email_from', emailFrom);
+  if (emailApiKey) await setSetting(env, 'email_api_key', emailApiKey);
   await createSystemLog(env, { level: 'info', action: 'admin_settings_updated', message: 'Admin email settings updated' });
   return json(await getAdminSettings(env));
 }
@@ -176,7 +183,8 @@ async function requestPasswordReset(request, env) {
   if (!email || !adminEmail || email !== adminEmail) {
     return json({ ok: true, sent: false });
   }
-  if (!env.RESEND_API_KEY) {
+  const emailConfig = await resolveEmailConfig(env);
+  if (!emailConfig.apiKey) {
     await createSystemLog(env, { level: 'warn', action: 'password_reset_email_failed', message: 'RESEND_API_KEY is not configured' });
     return json({ ok: true, sent: false, emailProviderConfigured: false });
   }
@@ -1988,15 +1996,16 @@ function isValidEmail(value) {
 }
 
 async function sendEmail(env, input) {
-  if (!env.RESEND_API_KEY) throw new Error('EMAIL_PROVIDER_NOT_CONFIGURED');
-  const response = await fetch('https://api.resend.com/emails', {
+  const config = await resolveEmailConfig(env);
+  if (!config.apiKey) throw new Error('EMAIL_PROVIDER_NOT_CONFIGURED');
+  const response = await fetch(`${config.baseURL.replace(/\/+$/, '')}/emails`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${env.RESEND_API_KEY}`
+      authorization: `Bearer ${config.apiKey}`
     },
     body: JSON.stringify({
-      from: env.EMAIL_FROM || 'TG Bot Admin <onboarding@resend.dev>',
+      from: config.from,
       to: [input.to],
       subject: input.subject,
       text: input.text
@@ -2005,6 +2014,17 @@ async function sendEmail(env, input) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message || data.error || `EMAIL_SEND_FAILED_${response.status}`);
   return data;
+}
+
+async function resolveEmailConfig(env) {
+  const storedKey = await getSetting(env, 'email_api_key');
+  const storedFrom = await getSetting(env, 'email_from');
+  const storedBaseURL = await getSetting(env, 'email_base_url');
+  return {
+    apiKey: storedKey || env.RESEND_API_KEY || '',
+    from: storedFrom || env.EMAIL_FROM || 'TG Bot Admin <onboarding@resend.dev>',
+    baseURL: storedBaseURL || env.EMAIL_BASE_URL || 'https://api.resend.com'
+  };
 }
 
 function normalizeJsonText(value, fallback = '[]') {
