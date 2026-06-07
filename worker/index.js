@@ -192,6 +192,50 @@ async function getAnalytics(env, params) {
   )
     .bind(...binds)
     .first();
+  const duplicateUsers = await env.DB.prepare(
+    `SELECT m.bot_id AS botId,
+            m.chat_id AS chatId,
+            COUNT(*) AS messageCount,
+            MIN(m.created_at) AS firstMessageAt,
+            MAX(m.created_at) AS lastMessageAt,
+            COALESCE(c.username, '') AS username,
+            COALESCE(c.first_name, '') AS firstName,
+            COALESCE(c.last_name, '') AS lastName
+     FROM messages m
+     LEFT JOIN chats c ON c.bot_id = m.bot_id AND c.chat_id = m.chat_id
+     WHERE ${where.replaceAll('bot_id', 'm.bot_id').replaceAll('chat_id', 'm.chat_id').replaceAll('created_at', 'm.created_at').replaceAll('role', 'm.role')}
+     GROUP BY m.bot_id, m.chat_id
+     HAVING COUNT(*) > 1
+     ORDER BY messageCount DESC, lastMessageAt DESC
+     LIMIT 100`
+  )
+    .bind(...binds)
+    .all();
+  const duplicateMessages = await env.DB.prepare(
+    `SELECT m.id,
+            m.bot_id AS botId,
+            m.chat_id AS chatId,
+            m.content,
+            m.media_type AS mediaType,
+            m.created_at AS createdAt,
+            COALESCE(c.username, '') AS username,
+            COALESCE(c.first_name, '') AS firstName,
+            COALESCE(c.last_name, '') AS lastName
+     FROM messages m
+     LEFT JOIN chats c ON c.bot_id = m.bot_id AND c.chat_id = m.chat_id
+     WHERE ${where.replaceAll('bot_id', 'm.bot_id').replaceAll('chat_id', 'm.chat_id').replaceAll('created_at', 'm.created_at').replaceAll('role', 'm.role')}
+       AND (m.bot_id || ':' || m.chat_id) IN (
+         SELECT bot_id || ':' || chat_id
+         FROM messages
+         WHERE ${where}
+         GROUP BY bot_id, chat_id
+         HAVING COUNT(*) > 1
+       )
+     ORDER BY m.created_at DESC
+     LIMIT 300`
+  )
+    .bind(...binds, ...binds)
+    .all();
   const bots = await listBots(env);
   const botMap = Object.fromEntries(bots.map((bot) => [bot.id, bot.name]));
   return json({
@@ -202,7 +246,9 @@ async function getAnalytics(env, params) {
     generatedAt: new Date().toISOString(),
     totals: {
       messageCount: Number(totals?.messageCount || 0),
+      rawUserCount: Number(totals?.messageCount || 0),
       uniqueUserCount: Number(totals?.uniqueUserCount || 0),
+      duplicateUserCount: Number(duplicateUsers.results?.length || 0),
       botCount: Number(totals?.botCount || 0)
     },
     rows: (daily.results || []).map((row) => ({
@@ -211,6 +257,31 @@ async function getAnalytics(env, params) {
       botName: botMap[row.botId] || row.botId,
       messageCount: Number(row.messageCount || 0),
       uniqueUserCount: Number(row.uniqueUserCount || 0)
+    })),
+    duplicateUsers: (duplicateUsers.results || []).map((row) => ({
+      botId: row.botId,
+      botName: botMap[row.botId] || row.botId,
+      chatId: row.chatId,
+      username: row.username,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      displayName: row.username ? `@${row.username}` : [row.firstName, row.lastName].filter(Boolean).join(' ') || row.chatId,
+      messageCount: Number(row.messageCount || 0),
+      firstMessageAt: row.firstMessageAt,
+      lastMessageAt: row.lastMessageAt
+    })),
+    duplicateMessages: (duplicateMessages.results || []).map((row) => ({
+      id: row.id,
+      botId: row.botId,
+      botName: botMap[row.botId] || row.botId,
+      chatId: row.chatId,
+      username: row.username,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      displayName: row.username ? `@${row.username}` : [row.firstName, row.lastName].filter(Boolean).join(' ') || row.chatId,
+      content: row.content,
+      mediaType: row.mediaType,
+      createdAt: row.createdAt
     }))
   });
 }
@@ -249,8 +320,17 @@ async function exportAnalytics(env, params) {
   const response = await getAnalytics(env, params);
   const data = await response.json();
   const rows = [
+    ['daily_breakdown'],
     ['date', 'bot_id', 'bot_name', 'message_count', 'unique_user_count'],
-    ...data.rows.map((row) => [row.date, row.botId, row.botName, row.messageCount, row.uniqueUserCount])
+    ...data.rows.map((row) => [row.date, row.botId, row.botName, row.messageCount, row.uniqueUserCount]),
+    [],
+    ['repeated_users'],
+    ['bot_id', 'bot_name', 'chat_id', 'display_name', 'message_count', 'first_message_at', 'last_message_at'],
+    ...data.duplicateUsers.map((row) => [row.botId, row.botName, row.chatId, row.displayName, row.messageCount, row.firstMessageAt, row.lastMessageAt]),
+    [],
+    ['repeated_user_conversations'],
+    ['created_at', 'bot_id', 'bot_name', 'chat_id', 'display_name', 'message'],
+    ...data.duplicateMessages.map((row) => [row.createdAt, row.botId, row.botName, row.chatId, row.displayName, row.content || `[${row.mediaType || 'message'}]`])
   ];
   const csv = rows.map((row) => row.map(csvCell).join(',')).join('\n');
   return text(csv, {

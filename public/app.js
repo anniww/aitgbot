@@ -514,10 +514,11 @@ function analyticsView() {
         <div class="actions"><button data-action="refresh-analytics">Apply</button></div>
       </div>
     </div>
-    <div class="grid cols-3">
-      ${statCard('User Messages', data.totals.messageCount || 0)}
-      ${statCard('Deduped Users', data.totals.uniqueUserCount || 0)}
-      ${statCard('Bots Included', data.totals.botCount || (state.analyticsBotId ? 1 : 0))}
+    <div class="grid cols-4">
+      ${statCard('去重前用户', data.totals.rawUserCount || data.totals.messageCount || 0)}
+      ${statCard('去重后用户', data.totals.uniqueUserCount || 0)}
+      ${statCard('重复用户', data.totals.duplicateUserCount || 0)}
+      ${statCard('包含机器人', data.totals.botCount || (state.analyticsBotId ? 1 : 0))}
     </div>
     <div class="panel analytics-summary">
       Showing ${escapeHtml(data.startDate || '-')} to ${escapeHtml(data.endDate || '-')}
@@ -535,6 +536,37 @@ function analyticsView() {
           </tr>
         `).join('') || '<tr><td colspan="4" class="empty">No analytics data yet.</td></tr>'}</tbody>
       </table>
+    </div>
+    <div class="grid cols-2" style="margin-top:16px;">
+      <div class="panel">
+        <h2>重复用户列表</h2>
+        <table class="table">
+          <thead><tr><th>用户</th><th>机器人</th><th>消息数</th><th>首次</th><th>最近</th></tr></thead>
+          <tbody>${(data.duplicateUsers || []).map((row) => `
+            <tr>
+              <td>${escapeHtml(row.displayName || row.chatId)}</td>
+              <td>${escapeHtml(row.botName || row.botId)}</td>
+              <td>${row.messageCount || 0}</td>
+              <td>${formatTime(row.firstMessageAt)}</td>
+              <td>${formatTime(row.lastMessageAt)}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="5" class="empty">当前日期范围没有重复用户。</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>重复用户对话列表</h2>
+        <table class="table">
+          <thead><tr><th>时间</th><th>用户</th><th>机器人</th><th>消息</th></tr></thead>
+          <tbody>${(data.duplicateMessages || []).map((row) => `
+            <tr>
+              <td>${formatTime(row.createdAt)}</td>
+              <td>${escapeHtml(row.displayName || row.chatId)}</td>
+              <td>${escapeHtml(row.botName || row.botId)}</td>
+              <td>${escapeHtml(short(row.content || `[${row.mediaType || 'message'}]`, 90))}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="4" class="empty">当前日期范围没有重复用户对话。</td></tr>'}</tbody>
+        </table>
+      </div>
     </div>
   `;
 }
