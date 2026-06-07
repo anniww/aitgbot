@@ -541,7 +541,7 @@ function analyticsView() {
       <div class="panel">
         <h2>重复用户列表</h2>
         <table class="table">
-          <thead><tr><th>用户</th><th>机器人</th><th>消息数</th><th>首次</th><th>最近</th></tr></thead>
+          <thead><tr><th>用户</th><th>机器人</th><th>消息数</th><th>首次</th><th>最近</th><th>操作</th></tr></thead>
           <tbody>${(data.duplicateUsers || []).map((row) => `
             <tr>
               <td>${escapeHtml(row.displayName || row.chatId)}</td>
@@ -549,22 +549,24 @@ function analyticsView() {
               <td>${row.messageCount || 0}</td>
               <td>${formatTime(row.firstMessageAt)}</td>
               <td>${formatTime(row.lastMessageAt)}</td>
+              <td><button data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">打开对话</button></td>
             </tr>
-          `).join('') || '<tr><td colspan="5" class="empty">当前日期范围没有重复用户。</td></tr>'}</tbody>
+          `).join('') || '<tr><td colspan="6" class="empty">当前日期范围没有重复用户。</td></tr>'}</tbody>
         </table>
       </div>
       <div class="panel">
-        <h2>重复用户对话列表</h2>
+        <h2>重复用户对话入口</h2>
         <table class="table">
-          <thead><tr><th>时间</th><th>用户</th><th>机器人</th><th>消息</th></tr></thead>
-          <tbody>${(data.duplicateMessages || []).map((row) => `
+          <thead><tr><th>用户</th><th>机器人</th><th>消息数</th><th>最近活跃</th><th>操作</th></tr></thead>
+          <tbody>${(data.duplicateUsers || []).map((row) => `
             <tr>
-              <td>${formatTime(row.createdAt)}</td>
               <td>${escapeHtml(row.displayName || row.chatId)}</td>
               <td>${escapeHtml(row.botName || row.botId)}</td>
-              <td>${escapeHtml(short(row.content || `[${row.mediaType || 'message'}]`, 90))}</td>
+              <td>${row.messageCount || 0}</td>
+              <td>${formatTime(row.lastMessageAt)}</td>
+              <td><button class="primary" data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">进入回复</button></td>
             </tr>
-          `).join('') || '<tr><td colspan="4" class="empty">当前日期范围没有重复用户对话。</td></tr>'}</tbody>
+          `).join('') || '<tr><td colspan="5" class="empty">当前日期范围没有重复用户对话。</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -1622,6 +1624,9 @@ function bindAnalyticsActions() {
   document.querySelector('#analyticsStartDate')?.addEventListener('change', applyAnalyticsFilters);
   document.querySelector('#analyticsEndDate')?.addEventListener('change', applyAnalyticsFilters);
   document.querySelector('[data-action="export-analytics"]')?.addEventListener('click', exportAnalytics);
+  document.querySelectorAll('[data-action="open-analytics-chat"]').forEach((button) => {
+    button.addEventListener('click', () => openAnalyticsChat(button.dataset.botId, button.dataset.chatId));
+  });
 }
 
 async function applyAnalyticsFilters() {
@@ -1653,6 +1658,20 @@ async function exportAnalytics() {
   link.click();
   URL.revokeObjectURL(url);
   notify('Analytics exported');
+}
+
+async function openAnalyticsChat(botId, chatId) {
+  if (!botId || !chatId) return;
+  state.selectedBotId = botId;
+  state.selectedChatId = chatId;
+  state.chatSearch = '';
+  state.chatStatusFilter = '';
+  state.messageSearch = '';
+  state.page = 'messages';
+  state.notification = null;
+  state.chats = await api('/api/chats');
+  await refreshScoped();
+  render();
 }
 
 function bindBotActions() {

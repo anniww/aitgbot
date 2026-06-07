@@ -211,31 +211,6 @@ async function getAnalytics(env, params) {
   )
     .bind(...binds)
     .all();
-  const duplicateMessages = await env.DB.prepare(
-    `SELECT m.id,
-            m.bot_id AS botId,
-            m.chat_id AS chatId,
-            m.content,
-            m.media_type AS mediaType,
-            m.created_at AS createdAt,
-            COALESCE(c.username, '') AS username,
-            COALESCE(c.first_name, '') AS firstName,
-            COALESCE(c.last_name, '') AS lastName
-     FROM messages m
-     LEFT JOIN chats c ON c.bot_id = m.bot_id AND c.chat_id = m.chat_id
-     WHERE ${where.replaceAll('bot_id', 'm.bot_id').replaceAll('chat_id', 'm.chat_id').replaceAll('created_at', 'm.created_at').replaceAll('role', 'm.role')}
-       AND (m.bot_id || ':' || m.chat_id) IN (
-         SELECT bot_id || ':' || chat_id
-         FROM messages
-         WHERE ${where}
-         GROUP BY bot_id, chat_id
-         HAVING COUNT(*) > 1
-       )
-     ORDER BY m.created_at DESC
-     LIMIT 300`
-  )
-    .bind(...binds, ...binds)
-    .all();
   const bots = await listBots(env);
   const botMap = Object.fromEntries(bots.map((bot) => [bot.id, bot.name]));
   return json({
@@ -269,19 +244,6 @@ async function getAnalytics(env, params) {
       messageCount: Number(row.messageCount || 0),
       firstMessageAt: row.firstMessageAt,
       lastMessageAt: row.lastMessageAt
-    })),
-    duplicateMessages: (duplicateMessages.results || []).map((row) => ({
-      id: row.id,
-      botId: row.botId,
-      botName: botMap[row.botId] || row.botId,
-      chatId: row.chatId,
-      username: row.username,
-      firstName: row.firstName,
-      lastName: row.lastName,
-      displayName: row.username ? `@${row.username}` : [row.firstName, row.lastName].filter(Boolean).join(' ') || row.chatId,
-      content: row.content,
-      mediaType: row.mediaType,
-      createdAt: row.createdAt
     }))
   });
 }
@@ -329,8 +291,8 @@ async function exportAnalytics(env, params) {
     ...data.duplicateUsers.map((row) => [row.botId, row.botName, row.chatId, row.displayName, row.messageCount, row.firstMessageAt, row.lastMessageAt]),
     [],
     ['repeated_user_conversations'],
-    ['created_at', 'bot_id', 'bot_name', 'chat_id', 'display_name', 'message'],
-    ...data.duplicateMessages.map((row) => [row.createdAt, row.botId, row.botName, row.chatId, row.displayName, row.content || `[${row.mediaType || 'message'}]`])
+    ['bot_id', 'bot_name', 'chat_id', 'display_name', 'message_count', 'last_message_at'],
+    ...data.duplicateUsers.map((row) => [row.botId, row.botName, row.chatId, row.displayName, row.messageCount, row.lastMessageAt])
   ];
   const csv = rows.map((row) => row.map(csvCell).join(',')).join('\n');
   return text(csv, {
@@ -1621,10 +1583,22 @@ async function generateAiReply(env, bot, textValue, chatId = '') {
   if (!bot.aiEnabled && chatId) return '';
   const history = chatId ? await listMessages(env, new URLSearchParams(`botId=${encodeURIComponent(bot.id)}&chatId=${encodeURIComponent(chatId)}`)) : [];
   const knowledge = await findRelevantKnowledge(env, bot.id, textValue);
+  const operatorExamples = await findRecentOperatorReplies(env, bot.id);
   const limit = Number(bot.aiContextLimit || 10);
   const messages = [
-    { role: 'system', content: bot.aiPrompt || 'You are a professional customer support assistant. Keep replies concise and polite.' },
-    ...(knowledge ? [{ role: 'system', content: `Use this business knowledge when relevant:\n${knowledge}` }] : []),
+    {
+      role: 'system',
+      content: [
+        bot.aiPrompt || 'You are a professional customer support assistant. Keep replies concise and polite.',
+        'Follow the owner/admin instructions and business knowledge first.',
+        'If the uploaded business knowledge or admin instructions answer the question, use that answer and do not invent alternatives.',
+        'If the answer is missing or uncertain, say that a human operator will confirm it instead of guessing.',
+        'Match the language, tone, wording style, pricing format, links, and policy boundaries used by the owner/admin replies.',
+        'Return only the customer-facing reply text.'
+      ].join('\n')
+    },
+    ...(knowledge ? [{ role: 'system', content: `Business knowledge, highest priority when relevant:\n${knowledge}` }] : []),
+    ...(operatorExamples ? [{ role: 'system', content: `Recent owner/admin reply examples to imitate:\n${operatorExamples}` }] : []),
     ...history
       .filter((item) => item.role === 'user' || item.role === 'bot')
       .slice(-limit)
@@ -1703,7 +1677,7 @@ async function findRelevantKnowledge(env, botId, textValue) {
   if (!results.length) return '';
   const terms = String(textValue || '')
     .toLowerCase()
-    .split(/[\s,.;:!?，。！？、]+/)
+    .split(/[\s,.;:!?\uFF0C\u3002\uFF01\uFF1F\u3001]+/)
     .filter((term) => term.length >= 2)
     .slice(0, 12);
   const scored = results
@@ -1716,6 +1690,24 @@ async function findRelevantKnowledge(env, botId, textValue) {
     .slice(0, 3);
   const selected = scored.some((doc) => doc.score > 0) ? scored.filter((doc) => doc.score > 0) : scored.slice(0, 2);
   return selected.map((doc) => `# ${doc.name}\n${String(doc.content || '').slice(0, 2500)}`).join('\n\n');
+}
+
+async function findRecentOperatorReplies(env, botId) {
+  const { results } = await env.DB.prepare(
+    `SELECT content
+     FROM messages
+     WHERE bot_id = ?
+       AND role = 'admin'
+       AND source = 'manual'
+       AND content != ''
+     ORDER BY created_at DESC
+     LIMIT 12`
+  )
+    .bind(botId)
+    .all();
+  return (results || [])
+    .map((row, index) => `${index + 1}. ${String(row.content || '').slice(0, 500)}`)
+    .join('\n');
 }
 
 async function waitForReplyDelay(bot) {
