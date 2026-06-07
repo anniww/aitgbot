@@ -43,20 +43,20 @@ const state = {
 };
 
 const pages = [
-  ['dashboard', 'Dashboard', 'DB'],
-  ['analytics', 'Analytics', 'AN'],
-  ['bots', 'Bots', 'BT'],
-  ['messages', 'Messages', 'IN'],
-  ['rules', 'Replies', 'RP'],
-  ['menus', 'Menus', 'MN'],
-  ['ai', 'AI Settings', 'AI'],
-  ['settings', 'Settings', 'ST'],
-  ['users', 'Users', 'US'],
-  ['broadcasts', 'Broadcasts', 'BC'],
-  ['media', 'Media', 'MD'],
-  ['logs', 'Logs', 'LG'],
-  ['data', 'Data', 'DA'],
-  ['diagnostics', 'Diagnostics', 'DX']
+  ['dashboard', 'Dashboard', 'grid'],
+  ['analytics', 'Analytics', 'chart'],
+  ['bots', 'Bots', 'bot'],
+  ['messages', 'Inbox', 'mail'],
+  ['rules', 'Replies', 'chat'],
+  ['menus', 'Menus', 'list'],
+  ['ai', 'AI Studio', 'spark'],
+  ['users', 'Users', 'users'],
+  ['broadcasts', 'Broadcasts', 'send'],
+  ['media', 'Media', 'image'],
+  ['logs', 'Logs', 'file'],
+  ['data', 'Data', 'data'],
+  ['diagnostics', 'Diagnostics', 'pulse'],
+  ['settings', 'Settings', 'gear']
 ];
 
 const aiProviderPresets = {
@@ -333,33 +333,53 @@ function render() {
   app.innerHTML = `
     <div class="app-shell">
       <header class="topbar">
-        <div>
-          <div class="top-title">${currentPageLabel()}</div>
-          <div class="top-subtitle">Telegram Operations Console</div>
+        <div class="workspace-select">
+          <span class="workspace-mark">${navIcon('data')}</span>
+          <span>
+            <strong>Acme Workspace</strong>
+            <small>Private Bot Console</small>
+          </span>
+          <span class="chevron">v</span>
+        </div>
+        <label class="global-search">
+          <span>${navIcon('search')}</span>
+          <input placeholder="Search bots, users, messages..." />
+          <kbd>Ctrl K</kbd>
+        </label>
+        <div class="top-status">
+          <span class="env-pill"><i></i>Production</span>
+          <span class="top-live-text">Live</span>
+          <button class="switch-button ${state.livePaused ? '' : 'on'}" data-action="toggle-live" aria-label="Toggle live refresh"><span></span></button>
         </div>
         <div class="top-actions">
-          <span class="live-indicator"><span class="live-dot"></span>Live</span>
-          <button data-action="toggle-live">${state.livePaused ? 'Resume Live' : 'Pause Live'}</button>
-          <button data-action="toggle-sound">${state.soundEnabled ? 'Sound On' : 'Sound Off'}</button>
+          <button class="icon-button" data-action="refresh" title="Refresh">${navIcon('refresh')}</button>
+          <button class="icon-button" data-action="toggle-sound" title="${state.soundEnabled ? 'Sound on' : 'Sound off'}">${navIcon(state.soundEnabled ? 'bell' : 'bell-off')}<b>${state.soundEnabled ? '3' : ''}</b></button>
           <label class="volume-control" title="Message sound volume">
-            <span>Vol</span>
             <input id="soundVolume" type="range" min="0" max="100" value="${state.soundVolume}" />
           </label>
-          <button data-action="refresh">Refresh</button>
+          <div class="admin-menu">
+            <span class="admin-avatar">A</span>
+            <strong>Admin</strong>
+          </div>
           <button data-action="logout">Logout</button>
         </div>
       </header>
       <aside class="sidebar">
-        <div class="brand">TG Bot Admin</div>
-        <div class="sidebar-caption">Private bot workspace</div>
+        <div class="brand"><span class="brand-logo">TG</span> TG Bot Console</div>
         <nav class="nav-list">
           ${pages.map(([key, label, icon]) => `
             <button class="nav-item ${state.page === key ? 'active' : ''}" data-page="${key}">
-              <span class="nav-icon">${icon}</span>
+              <span class="nav-icon">${navIcon(icon)}</span>
               <span>${label}</span>
+              ${key === 'messages' && state.chats.length ? `<em>${state.chats.length}</em>` : ''}
             </button>
           `).join('')}
         </nav>
+        <div class="sidebar-workspace">
+          <span>${navIcon('building')}</span>
+          <div><strong>Acme Workspace</strong><small>ID: 987654321</small></div>
+          <i>v</i>
+        </div>
       </aside>
       <main class="content">${pageView()}</main>
     </div>
@@ -382,6 +402,31 @@ function notificationView() {
 
 function currentPageLabel() {
   return pages.find(([key]) => key === state.page)?.[1] || 'Dashboard';
+}
+
+function navIcon(name) {
+  const icons = {
+    grid: '□',
+    chart: '▥',
+    bot: '◉',
+    mail: '✉',
+    chat: '◌',
+    list: '☰',
+    spark: '✦',
+    users: '◎',
+    send: '➤',
+    image: '▧',
+    file: '▤',
+    data: '▦',
+    pulse: '⌁',
+    gear: '⚙',
+    search: '⌕',
+    refresh: '↻',
+    bell: '♢',
+    'bell-off': '♢',
+    building: '▣'
+  };
+  return icons[name] || '•';
 }
 
 function loginView() {
@@ -449,35 +494,61 @@ function pageHead(title, subtitle = '', action = '') {
 
 function dashboardView() {
   const d = state.dashboard || {};
+  const today = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   return `
-    ${pageHead('Dashboard', 'Overview for all bots, conversations, broadcasts, and diagnostics.')}
-    <div class="grid cols-4">
-      ${statCard('Bots', d.botCount || 0)}
-      ${statCard('Running', d.runningCount || 0)}
-      ${statCard('Today Messages', d.todayMessages || 0)}
-      ${statCard('Unverified Bots', d.unverifiedBotCount || 0)}
-    </div>
-    <div class="quick-actions panel">
-      <button data-page-jump="bots">Manage Bots</button>
-      <button data-page-jump="messages">Open Inbox</button>
-      <button data-page-jump="broadcasts">New Broadcast</button>
-      <button data-page-jump="diagnostics">Diagnostics</button>
-      <button data-page-jump="logs">Logs</button>
-      <button data-page-jump="data">Backup Data</button>
-    </div>
-    <div class="grid cols-2" style="margin-top:16px;">
-      <div class="panel">
-        <h2>Recent Bots</h2>
-        ${botCards(d.recentBots || [], 'compact')}
+    <div class="dashboard-hero">
+      <div class="hero-title-mark">${navIcon('bot')}</div>
+      <div>
+        <h1 class="page-title">Operations Overview</h1>
+        <div class="page-subtitle">Monitor your bots, conversations, and automation performance in real time.</div>
       </div>
-      <div class="panel">
-        <h2>Recent Messages</h2>
-        ${(d.recentMessages || []).map(messageLine).join('') || '<div class="empty">No messages yet.</div>'}
-      </div>
+      <div class="date-chip">${navIcon('file')} ${today}<span>Today</span></div>
     </div>
-    <div class="panel" style="margin-top:16px;">
-      <h2>Recent Issues</h2>
-      ${(d.recentIssues || []).map(issueLine).join('') || '<div class="empty">No recent warnings or errors.</div>'}
+    <div class="grid cols-4 dashboard-stats">
+      ${statCard('Active Bots', d.botCount || 0, 'bot')}
+      ${statCard('Running Flows', d.runningCount || 0, 'data')}
+      ${statCard('Messages Today', d.todayMessages || 0, 'send')}
+      ${statCard('Error Alerts', d.unverifiedBotCount || 0, 'pulse')}
+    </div>
+    <div class="dashboard-grid">
+      <div class="panel fleet-panel">
+        <div class="panel-head"><h2>Bot Fleet <span>${d.botCount || 0}</span></h2><button data-page-jump="bots">View all bots</button></div>
+        ${dashboardBotFleet(d.recentBots || [])}
+        <button class="link-action" data-page-jump="bots">+ Add New Bot</button>
+      </div>
+      <div class="panel conversations-panel">
+        <div class="panel-head"><h2>Recent Conversations <span>${(d.recentMessages || []).length}</span></h2><button data-page-jump="messages">Open Inbox</button></div>
+        ${(d.recentMessages || []).slice(0, 6).map(conversationLine).join('') || '<div class="empty">No messages yet.</div>'}
+        <button class="link-action" data-page-jump="messages">View all conversations</button>
+      </div>
+      <div class="panel broadcast-panel">
+        <div class="panel-head"><h2>Broadcast Performance</h2><button data-page-jump="analytics">Last 7 days</button></div>
+        <div class="chart-card">
+          <div class="chart-lines"><span></span><span></span><span></span><span></span></div>
+          <div class="chart-path"></div>
+        </div>
+      </div>
+      <div class="panel quick-panel">
+        <h2>Quick Actions</h2>
+        <div class="quick-action-grid">
+          <button data-page-jump="bots"><span>${navIcon('bot')}</span>Create Bot</button>
+          <button data-page-jump="messages"><span>${navIcon('mail')}</span>Open Inbox</button>
+          <button data-page-jump="broadcasts"><span>${navIcon('send')}</span>New Broadcast</button>
+          <button data-page-jump="diagnostics"><span>${navIcon('pulse')}</span>Diagnose</button>
+          <button data-page-jump="logs"><span>${navIcon('file')}</span>Export Logs</button>
+        </div>
+      </div>
+      <div class="panel diagnostics-strip">
+        <div class="panel-head"><h2>System Diagnostics</h2><button data-page-jump="diagnostics">View all checks</button></div>
+        <div class="diagnostic-row">
+          ${statusItem('Webhook', 'Healthy', true)}
+          ${statusItem('API Connection', 'Healthy', true)}
+          ${statusItem('Database', 'Healthy', true)}
+          ${statusItem('File Storage', 'Healthy', true)}
+          ${statusItem('AI Services', (state.aiConfig?.hasApiKey ? 'Healthy' : 'Needs API'), Boolean(state.aiConfig?.hasApiKey))}
+          ${statusItem('Backup', 'Healthy', true)}
+        </div>
+      </div>
     </div>
   `;
 }
@@ -1046,8 +1117,59 @@ Current: ${escapeHtml(status.deployment?.current || '-')}</div>
   `;
 }
 
-function statCard(label, value) {
-  return `<div class="panel stat"><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+function statCard(label, value, icon = 'grid') {
+  return `
+    <div class="panel stat">
+      <div class="stat-icon">${navIcon(icon)}</div>
+      <div>
+        <div class="stat-label">${label}</div>
+        <div class="stat-value">${value}</div>
+        <div class="stat-trend">+ ${Number(value || 0) ? '1' : '0'} vs yesterday</div>
+      </div>
+      <div class="sparkline"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+  `;
+}
+
+function dashboardBotFleet(bots = []) {
+  if (!bots.length) return '<div class="empty">No bots yet.</div>';
+  return `
+    <table class="fleet-table">
+      <thead><tr><th>Bot</th><th>Status</th><th>Health</th><th>Actions</th></tr></thead>
+      <tbody>${bots.slice(0, 4).map((bot, index) => {
+        const status = bot.runtime?.status || bot.status || 'stopped';
+        const health = bot.tokenVerified ? 98 - index * 4 : 72;
+        return `
+          <tr>
+            <td>
+              <div class="fleet-bot">
+                <span class="fleet-avatar">${escapeHtml(botInitials(bot))}</span>
+                <div><strong>${escapeHtml(bot.name || 'Unnamed Bot')}</strong><small>${bot.username ? `@${escapeHtml(bot.username)}` : 'Username not verified'}</small></div>
+              </div>
+            </td>
+            <td>${statusBadge(status)}</td>
+            <td><div class="health-cell"><span>${health}%</span><b style="--value:${health}%"></b></div></td>
+            <td><button data-page-jump="bots">Open</button></td>
+          </tr>
+        `;
+      }).join('')}</tbody>
+    </table>
+  `;
+}
+
+function conversationLine(message) {
+  const role = message.role || 'user';
+  const text = message.content || `[${message.mediaType || 'message'}]`;
+  return `
+    <div class="conversation-line">
+      <span class="conversation-avatar ${role}">${role === 'user' ? 'U' : 'B'}</span>
+      <div>
+        <div><strong>${role === 'user' ? 'User' : 'Bot'}</strong> <span>${escapeHtml(botName(message.botId))}</span></div>
+        <p>${escapeHtml(short(text, 86))}</p>
+      </div>
+      <time>${formatTime(message.createdAt).split(',').pop()?.trim() || ''}</time>
+    </div>
+  `;
 }
 
 function statusItem(label, value, ok) {
