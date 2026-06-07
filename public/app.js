@@ -786,7 +786,7 @@ function settingsView() {
       </div>
       <div class="panel">
         <h2>Panel Password</h2>
-        <p class="muted">Change the admin password used for this dashboard. Minimum 8 characters.</p>
+        <p class="muted">Use 8-64 English keyboard characters with at least one letter and one number.</p>
         <form id="adminPasswordForm" class="form-grid">
           <div class="form-row full"><label>New Password</label><input name="newPassword" type="password" autocomplete="new-password" /></div>
           <div class="form-row full"><label>Confirm Password</label><input name="confirmPassword" type="password" autocomplete="new-password" /></div>
@@ -1489,7 +1489,7 @@ function passwordResetView() {
         <h3 class="full">Set New Password</h3>
         <div class="form-row full"><label>Bound Email</label><input name="email" type="email" required /></div>
         <div class="form-row full"><label>Reset Code</label><input name="code" inputmode="numeric" autocomplete="one-time-code" required /></div>
-        <div class="form-row full"><label>New Password</label><input name="newPassword" type="password" autocomplete="new-password" required /></div>
+        <div class="form-row full"><label>New Password</label><input name="newPassword" type="password" autocomplete="new-password" placeholder="8-64 letters, numbers, symbols" required /></div>
         <div class="actions full"><button class="primary">Reset Password</button></div>
       </form>
     </div>
@@ -2248,11 +2248,19 @@ async function saveAdminSettings(event) {
   }
 }
 
+function validateAdminPasswordInput(password) {
+  if (password.length < 8 || password.length > 64) return 'Password must be 8-64 characters';
+  if (!/^[\x21-\x7E]+$/.test(password)) return 'Password can only use English letters, numbers, and visible symbols';
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) return 'Password must include at least one letter and one number';
+  return '';
+}
+
 async function saveAdminPassword(event) {
   event.preventDefault();
   try {
     const data = Object.fromEntries(new FormData(event.currentTarget));
-    if (String(data.newPassword || '').length < 8) return notify('Password must be at least 8 characters');
+    const passwordError = validateAdminPasswordInput(String(data.newPassword || ''));
+    if (passwordError) return notify(passwordError);
     if (data.newPassword !== data.confirmPassword) return notify('Passwords do not match');
     await api('/api/admin-password', {
       method: 'PUT',
@@ -2284,6 +2292,8 @@ async function requestPasswordReset(event) {
 async function confirmPasswordReset(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget));
+  const passwordError = validateAdminPasswordInput(String(data.newPassword || ''));
+  if (passwordError) return notify(passwordError);
   const response = await fetch('/api/password-reset/confirm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

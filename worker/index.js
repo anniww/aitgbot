@@ -170,7 +170,8 @@ async function updateAdminSettings(request, env) {
 async function updateAdminPassword(request, env) {
   const body = await readJson(request);
   const password = String(body.newPassword || '');
-  if (password.length < 8) return json({ error: 'Password must be at least 8 characters' }, { status: 400 });
+  const validation = validateAdminPassword(password);
+  if (!validation.ok) return json({ error: validation.message }, { status: 400 });
   await setSetting(env, 'admin_password_hash', await sha256Hex(password));
   await createSystemLog(env, { level: 'warn', action: 'admin_password_updated', message: 'Admin password updated from panel' });
   return json({ ok: true });
@@ -216,7 +217,8 @@ async function confirmPasswordReset(request, env) {
   const email = String(body.email || '').trim().toLowerCase();
   const code = String(body.code || '').trim();
   const password = String(body.newPassword || '');
-  if (!email || !code || password.length < 8) return json({ error: 'Email, code, and a password with at least 8 characters are required' }, { status: 400 });
+  const validation = validateAdminPassword(password);
+  if (!email || !code || !validation.ok) return json({ error: validation.message || 'Email, code, and a valid password are required' }, { status: 400 });
   const row = await env.DB.prepare(
     `SELECT * FROM password_reset_codes
      WHERE email = ? AND used_at = '' AND expires_at > ?
@@ -1993,6 +1995,19 @@ async function sha256Hex(value) {
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
+}
+
+function validateAdminPassword(password) {
+  if (password.length < 8 || password.length > 64) {
+    return { ok: false, message: 'Password must be 8-64 characters' };
+  }
+  if (!/^[\x21-\x7E]+$/.test(password)) {
+    return { ok: false, message: 'Password can only use English letters, numbers, and visible symbols' };
+  }
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+    return { ok: false, message: 'Password must include at least one letter and one number' };
+  }
+  return { ok: true, message: '' };
 }
 
 async function sendEmail(env, input) {
