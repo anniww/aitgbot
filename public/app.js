@@ -617,9 +617,9 @@ function analyticsView() {
     </div>
     <div class="grid cols-2" style="margin-top:16px;">
       <div class="panel">
-        <h2>閲嶅鐢ㄦ埛鍒楄〃</h2>
+        <h2>Repeated Users</h2>
         <table class="table">
-          <thead><tr><th>鐢ㄦ埛</th><th>鏈哄櫒浜?/th><th>娑堟伅鏁?/th><th>棣栨</th><th>鏈€杩?/th><th>鎿嶄綔</th></tr></thead>
+          <thead><tr><th>User</th><th>Bot</th><th>Messages</th><th>First</th><th>Last</th><th>Action</th></tr></thead>
           <tbody>${(data.duplicateUsers || []).map((row) => `
             <tr>
               <td>${escapeHtml(row.displayName || row.chatId)}</td>
@@ -627,24 +627,24 @@ function analyticsView() {
               <td>${row.messageCount || 0}</td>
               <td>${formatTime(row.firstMessageAt)}</td>
               <td>${formatTime(row.lastMessageAt)}</td>
-              <td><button data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">鎵撳紑瀵硅瘽</button></td>
+              <td><button data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">Open Chat</button></td>
             </tr>
-          `).join('') || '<tr><td colspan="6" class="empty">褰撳墠鏃ユ湡鑼冨洿娌℃湁閲嶅鐢ㄦ埛銆?/td></tr>'}</tbody>
+          `).join('') || '<tr><td colspan="6" class="empty">No repeated users in this date range.</td></tr>'}</tbody>
         </table>
       </div>
       <div class="panel">
-        <h2>閲嶅鐢ㄦ埛瀵硅瘽鍏ュ彛</h2>
+        <h2>Repeated User Chat Entry</h2>
         <table class="table">
-          <thead><tr><th>鐢ㄦ埛</th><th>鏈哄櫒浜?/th><th>娑堟伅鏁?/th><th>鏈€杩戞椿璺?/th><th>鎿嶄綔</th></tr></thead>
+          <thead><tr><th>User</th><th>Bot</th><th>Messages</th><th>Last Active</th><th>Action</th></tr></thead>
           <tbody>${(data.duplicateUsers || []).map((row) => `
             <tr>
               <td>${escapeHtml(row.displayName || row.chatId)}</td>
               <td>${escapeHtml(row.botName || row.botId)}</td>
               <td>${row.messageCount || 0}</td>
               <td>${formatTime(row.lastMessageAt)}</td>
-              <td><button class="primary" data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">杩涘叆鍥炲</button></td>
+              <td><button class="primary" data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">Reply</button></td>
             </tr>
-          `).join('') || '<tr><td colspan="5" class="empty">褰撳墠鏃ユ湡鑼冨洿娌℃湁閲嶅鐢ㄦ埛瀵硅瘽銆?/td></tr>'}</tbody>
+          `).join('') || '<tr><td colspan="5" class="empty">No repeated user chat entries in this date range.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
