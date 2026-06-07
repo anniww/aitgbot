@@ -41,9 +41,11 @@ export default {
     if (url.pathname === '/api/bootstrap') return json({ needsPassword: true, runtime: 'cloudflare' });
     if (url.pathname === '/api/telegram/webhook') return handleTelegramWebhook(request, env, ctx, url);
     if (url.pathname === '/api/avatar') return serveTelegramAvatar(request, env, url);
+    if (url.pathname === '/api/password-reset/request' && request.method === 'POST') return requestPasswordReset(request, env);
+    if (url.pathname === '/api/password-reset/confirm' && request.method === 'POST') return confirmPasswordReset(request, env);
 
     if (url.pathname.startsWith('/api/')) {
-      const auth = requireAdmin(request, env);
+      const auth = await requireAdmin(request, env);
       if (auth) return auth;
       return routeApi(request, env, ctx, url);
     }
@@ -61,6 +63,9 @@ async function routeApi(request, env, ctx, url) {
     if (url.pathname === '/api/system-status' && request.method === 'GET') return getSystemStatus(env);
     if (url.pathname === '/api/deployment-readiness' && request.method === 'GET') return getDeploymentReadiness(env);
     if (url.pathname === '/api/system-logs' && request.method === 'GET') return json(await listSystemLogs(env));
+    if (url.pathname === '/api/admin-settings' && request.method === 'GET') return getAdminSettingsResponse(env);
+    if (url.pathname === '/api/admin-settings' && request.method === 'PUT') return updateAdminSettings(request, env);
+    if (url.pathname === '/api/admin-password' && request.method === 'PUT') return updateAdminPassword(request, env);
     if (url.pathname === '/api/export' && request.method === 'GET') return exportData(env);
     if (url.pathname === '/api/import' && request.method === 'POST') return json({ error: 'CLOUDFLARE_IMPORT_NOT_READY' }, { status: 501 });
     if (url.pathname === '/api/ai-config' && request.method === 'GET') return getAiConfigResponse(env);
@@ -119,11 +124,104 @@ async function routeApi(request, env, ctx, url) {
   }
 }
 
-function requireAdmin(request, env) {
-  const password = env.ADMIN_PASSWORD || 'admin123';
+async function requireAdmin(request, env) {
   const header = request.headers.get('x-admin-password') || '';
+  const storedHash = await getSetting(env, 'admin_password_hash');
+  if (storedHash) {
+    if (await sha256Hex(header) === storedHash) return null;
+    return json({ error: 'ADMIN_PASSWORD_REQUIRED' }, { status: 401 });
+  }
+  const password = env.ADMIN_PASSWORD || 'admin123';
   if (header === password) return null;
   return json({ error: 'ADMIN_PASSWORD_REQUIRED' }, { status: 401 });
+}
+
+async function getAdminSettings(env) {
+  return {
+    adminEmail: await getSetting(env, 'admin_email'),
+    emailNotifications: (await getSetting(env, 'email_notifications')) === 'true',
+    passwordConfigured: Boolean(await getSetting(env, 'admin_password_hash') || env.ADMIN_PASSWORD),
+    emailProviderConfigured: Boolean(env.RESEND_API_KEY),
+    emailFrom: env.EMAIL_FROM || 'TG Bot Admin <onboarding@resend.dev>'
+  };
+}
+
+async function getAdminSettingsResponse(env) {
+  return json(await getAdminSettings(env));
+}
+
+async function updateAdminSettings(request, env) {
+  const body = await readJson(request);
+  const email = String(body.adminEmail || '').trim();
+  if (email && !isValidEmail(email)) return json({ error: 'Valid email is required' }, { status: 400 });
+  await setSetting(env, 'admin_email', email);
+  await setSetting(env, 'email_notifications', body.emailNotifications ? 'true' : 'false');
+  await createSystemLog(env, { level: 'info', action: 'admin_settings_updated', message: 'Admin email settings updated' });
+  return json(await getAdminSettings(env));
+}
+
+async function updateAdminPassword(request, env) {
+  const body = await readJson(request);
+  const password = String(body.newPassword || '');
+  if (password.length < 8) return json({ error: 'Password must be at least 8 characters' }, { status: 400 });
+  await setSetting(env, 'admin_password_hash', await sha256Hex(password));
+  await createSystemLog(env, { level: 'warn', action: 'admin_password_updated', message: 'Admin password updated from panel' });
+  return json({ ok: true });
+}
+
+async function requestPasswordReset(request, env) {
+  const body = await readJson(request);
+  const email = String(body.email || '').trim().toLowerCase();
+  const adminEmail = String(await getSetting(env, 'admin_email') || '').trim().toLowerCase();
+  if (!email || !adminEmail || email !== adminEmail) {
+    return json({ ok: true, sent: false });
+  }
+  if (!env.RESEND_API_KEY) {
+    await createSystemLog(env, { level: 'warn', action: 'password_reset_email_failed', message: 'RESEND_API_KEY is not configured' });
+    return json({ ok: true, sent: false, emailProviderConfigured: false });
+  }
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+  await env.DB.prepare(
+    `INSERT INTO password_reset_codes (id, email, code_hash, expires_at, used_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  )
+    .bind(crypto.randomUUID(), email, await sha256Hex(code), expiresAt, '', now.toISOString())
+    .run();
+  try {
+    await sendEmail(env, {
+      to: email,
+      subject: 'TG Bot Admin password reset code',
+      text: `Your TG Bot Admin password reset code is ${code}. It expires in 15 minutes.`
+    });
+    await createSystemLog(env, { level: 'warn', action: 'password_reset_requested', message: 'Password reset email sent' });
+    return json({ ok: true, sent: true });
+  } catch (error) {
+    await createSystemLog(env, { level: 'warn', action: 'password_reset_email_failed', message: error.message || 'Password reset email failed' });
+    return json({ ok: true, sent: false, emailProviderConfigured: true });
+  }
+}
+
+async function confirmPasswordReset(request, env) {
+  const body = await readJson(request);
+  const email = String(body.email || '').trim().toLowerCase();
+  const code = String(body.code || '').trim();
+  const password = String(body.newPassword || '');
+  if (!email || !code || password.length < 8) return json({ error: 'Email, code, and a password with at least 8 characters are required' }, { status: 400 });
+  const row = await env.DB.prepare(
+    `SELECT * FROM password_reset_codes
+     WHERE email = ? AND used_at = '' AND expires_at > ?
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(email, new Date().toISOString())
+    .first();
+  if (!row || row.code_hash !== await sha256Hex(code)) return json({ error: 'Invalid or expired reset code' }, { status: 400 });
+  await setSetting(env, 'admin_password_hash', await sha256Hex(password));
+  await env.DB.prepare('UPDATE password_reset_codes SET used_at = ? WHERE id = ?').bind(new Date().toISOString(), row.id).run();
+  await createSystemLog(env, { level: 'warn', action: 'admin_password_reset', message: 'Admin password reset by email code' });
+  return json({ ok: true });
 }
 
 function health(env) {
@@ -140,6 +238,47 @@ function health(env) {
       baseURL: ai.baseURL,
       model: ai.model,
       hasApiKey: Boolean(ai.apiKey)
+    }
+  });
+}
+
+async function getSystemStatus(env) {
+  const ai = resolveAiConfig(env);
+  const admin = await getAdminSettings(env);
+  return json({
+    mode: 'cloudflare',
+    nodeVersion: 'workers-runtime',
+    port: 443,
+    adminPassword: {
+      configured: admin.passwordConfigured,
+      usingDefault: !admin.passwordConfigured
+    },
+    email: {
+      adminEmailConfigured: Boolean(admin.adminEmail),
+      notificationsEnabled: admin.emailNotifications,
+      providerConfigured: admin.emailProviderConfigured
+    },
+    ai: {
+      enabled: Boolean(ai.apiKey),
+      provider: ai.provider,
+      baseURLConfigured: Boolean(env.AI_BASE_URL),
+      baseURL: ai.baseURL,
+      model: ai.model
+    },
+    network: {
+      proxyConfigured: false
+    },
+    storage: {
+      dataFile: 'Cloudflare D1',
+      dataFileExists: Boolean(env.DB),
+      dataFileBytes: 0,
+      uploadDir: 'Cloudflare R2',
+      uploadFileCount: 0,
+      uploadBytes: 0
+    },
+    deployment: {
+      current: 'Cloudflare Workers + D1 + R2',
+      planned: 'Telegram webhook production runtime'
     }
   });
 }
@@ -308,51 +447,29 @@ function csvCell(value) {
   return /[",\n]/.test(textValue) ? `"${textValue.replace(/"/g, '""')}"` : textValue;
 }
 
-function getSystemStatus(env) {
-  const ai = resolveAiConfig(env);
-  return json({
-    mode: 'cloudflare',
-    nodeVersion: 'workers-runtime',
-    port: 443,
-    adminPassword: {
-      configured: Boolean(env.ADMIN_PASSWORD),
-      usingDefault: !env.ADMIN_PASSWORD
-    },
-    ai: {
-      enabled: Boolean(ai.apiKey),
-      provider: ai.provider,
-      baseURLConfigured: Boolean(env.AI_BASE_URL),
-      baseURL: ai.baseURL,
-      model: ai.model
-    },
-    network: {
-      proxyConfigured: false
-    },
-    storage: {
-      dataFile: 'Cloudflare D1',
-      dataFileExists: Boolean(env.DB),
-      dataFileBytes: 0,
-      uploadDir: 'Cloudflare R2',
-      uploadFileCount: 0,
-      uploadBytes: 0
-    },
-    deployment: {
-      current: 'Cloudflare Workers + D1 + R2',
-      planned: 'Telegram webhook production runtime'
-    }
-  });
-}
-
 async function getDeploymentReadiness(env) {
   const bots = await listBots(env);
   const logs = await listSystemLogs(env, 50);
   const ai = resolveAiConfig(env);
+  const admin = await getAdminSettings(env);
   const checks = [
     {
       key: 'admin-password',
       label: 'Admin password',
-      status: env.ADMIN_PASSWORD ? 'pass' : 'warning',
-      detail: env.ADMIN_PASSWORD ? 'ADMIN_PASSWORD secret is configured.' : 'Set ADMIN_PASSWORD as a Cloudflare secret before production use.'
+      status: admin.passwordConfigured ? 'pass' : 'warning',
+      detail: admin.passwordConfigured ? 'Admin password is configured.' : 'Set a password from Settings before production use.'
+    },
+    {
+      key: 'admin-email',
+      label: 'Admin email',
+      status: admin.adminEmail ? 'pass' : 'warning',
+      detail: admin.adminEmail ? 'Admin email is bound for password reset and notifications.' : 'Bind an admin email for password reset.'
+    },
+    {
+      key: 'email-provider',
+      label: 'Email provider',
+      status: admin.emailNotifications && !admin.emailProviderConfigured ? 'warning' : 'pass',
+      detail: admin.emailNotifications && !admin.emailProviderConfigured ? 'Message email alerts are enabled but RESEND_API_KEY is not configured.' : 'Email alert setting is compatible with current provider configuration.'
     },
     {
       key: 'bot-tokens',
@@ -1430,6 +1547,13 @@ async function handleIncomingMessage(env, bot, message) {
     telegramFileId: media.telegramFileId,
     source: 'telegram'
   });
+  await notifyAdminNewMessage(env, bot, {
+    chatId,
+    username: chat.username || '',
+    firstName: chat.first_name || '',
+    lastName: chat.last_name || '',
+    text: textValue
+  });
 
   const chatState = await getChatByBotChat(env, bot.id, chatId);
   if (chatState?.status === 'blocked' || chatState?.status === 'manual') return;
@@ -1507,6 +1631,37 @@ async function handleIncomingCallback(env, bot, query) {
     const templates = await listTemplates(env, bot.id);
     const template = templates.find((item) => item.id === rule.templateId);
     if (template) await sendTemplate(env, bot, chatId, template, 'rule');
+  }
+}
+
+async function notifyAdminNewMessage(env, bot, input) {
+  try {
+    const settings = await getAdminSettings(env);
+    if (!settings.emailNotifications || !settings.adminEmail || !settings.emailProviderConfigured) return;
+    const sender = input.username
+      ? `@${input.username}`
+      : [input.firstName, input.lastName].filter(Boolean).join(' ') || input.chatId;
+    await sendEmail(env, {
+      to: settings.adminEmail,
+      subject: `New Telegram message - ${bot.name || bot.username || 'Bot'}`,
+      text: [
+        `Bot: ${bot.name || bot.username || bot.id}`,
+        `User: ${sender}`,
+        `Chat ID: ${input.chatId}`,
+        '',
+        input.text || '[media message]',
+        '',
+        'Open your TG Bot Admin panel to reply.'
+      ].join('\n')
+    });
+  } catch (error) {
+    await createSystemLog(env, {
+      level: 'warn',
+      action: 'email_notification_failed',
+      message: error.message || 'Email notification failed',
+      botId: bot.id,
+      entityId: input.chatId
+    });
   }
 }
 
@@ -1798,6 +1953,57 @@ async function readForm(request) {
       data[key] = value;
     }
   }
+  return data;
+}
+
+async function getSetting(env, key) {
+  if (!env.DB) return '';
+  try {
+    const row = await env.DB.prepare('SELECT value FROM app_settings WHERE key = ?').bind(key).first();
+    return row?.value || '';
+  } catch {
+    return '';
+  }
+}
+
+async function setSetting(env, key, value) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  )
+    .bind(key, String(value || ''), now)
+    .run();
+}
+
+async function sha256Hex(value) {
+  const bytes = new TextEncoder().encode(String(value || ''));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
+}
+
+async function sendEmail(env, input) {
+  if (!env.RESEND_API_KEY) throw new Error('EMAIL_PROVIDER_NOT_CONFIGURED');
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${env.RESEND_API_KEY}`
+    },
+    body: JSON.stringify({
+      from: env.EMAIL_FROM || 'TG Bot Admin <onboarding@resend.dev>',
+      to: [input.to],
+      subject: input.subject,
+      text: input.text
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || data.error || `EMAIL_SEND_FAILED_${response.status}`);
   return data;
 }
 

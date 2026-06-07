@@ -14,6 +14,7 @@ const state = {
   knowledgeDocs: [],
   systemStatus: null,
   aiConfig: null,
+  adminSettings: null,
   deploymentReadiness: null,
   analytics: null,
   analyticsRange: localStorage.getItem('tg_analytics_range') || 'last30',
@@ -49,6 +50,7 @@ const pages = [
   ['rules', 'Replies', 'RP'],
   ['menus', 'Menus', 'MN'],
   ['ai', 'AI Settings', 'AI'],
+  ['settings', 'Settings', 'ST'],
   ['users', 'Users', 'US'],
   ['broadcasts', 'Broadcasts', 'BC'],
   ['media', 'Media', 'MD'],
@@ -153,7 +155,7 @@ async function api(path, options = {}) {
 
 async function refreshAll() {
   try {
-    const [dashboard, bots, chats, broadcasts, media, logs, systemStatus, aiConfig, deploymentReadiness] = await Promise.all([
+    const [dashboard, bots, chats, broadcasts, media, logs, systemStatus, aiConfig, adminSettings, deploymentReadiness] = await Promise.all([
       api('/api/dashboard'),
       api('/api/bots'),
       api('/api/chats'),
@@ -162,6 +164,7 @@ async function refreshAll() {
       api('/api/system-logs'),
       api('/api/system-status'),
       api('/api/ai-config'),
+      api('/api/admin-settings'),
       api('/api/deployment-readiness')
     ]);
     state.dashboard = dashboard;
@@ -172,6 +175,7 @@ async function refreshAll() {
     state.logs = logs;
     state.systemStatus = systemStatus;
     state.aiConfig = aiConfig;
+    state.adminSettings = adminSettings;
     state.deploymentReadiness = deploymentReadiness;
     if (!state.selectedBotId && bots[0]) state.selectedBotId = bots[0].id;
     await refreshScoped();
@@ -399,13 +403,17 @@ function loginView() {
         <p class="page-subtitle">Manage bots, AI replies, broadcasts, customer chats, and business knowledge in one private workspace.</p>
         <div class="form-row">
           <label>Admin Password</label>
-          <input id="passwordInput" type="password" placeholder="Default: admin123" />
+          <input id="passwordInput" type="password" placeholder="Admin password" autocomplete="current-password" />
         </div>
         <div class="actions" style="margin-top:16px;">
           <button class="primary" id="loginButton">Login</button>
+          <button type="button" data-modal="password-reset">Forgot Password</button>
         </div>
+        <p class="muted">For security, the default password is not shown on the login screen.</p>
       </div>
     </div>
+    ${state.modal ? modalView(state.modal) : ''}
+    ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ''}
   `;
 }
 
@@ -417,6 +425,7 @@ function pageView() {
   if (state.page === 'rules') return repliesView();
   if (state.page === 'menus') return menusView();
   if (state.page === 'ai') return aiView();
+  if (state.page === 'settings') return settingsView();
   if (state.page === 'users') return usersView();
   if (state.page === 'broadcasts') return broadcastsView();
   if (state.page === 'media') return mediaView();
@@ -749,6 +758,49 @@ function aiApiConfigView() {
   `;
 }
 
+function settingsView() {
+  const settings = state.adminSettings || {};
+  return `
+    ${pageHead('Settings', 'Secure the admin panel, bind a recovery email, and control email alerts.')}
+    <div class="grid cols-2">
+      <div class="panel">
+        <h2>Admin Email</h2>
+        <p class="muted">Used for password reset codes and new message email alerts.</p>
+        <form id="adminSettingsForm" class="form-grid">
+          <div class="form-row full"><label>Email</label><input name="adminEmail" type="email" value="${escapeAttr(settings.adminEmail || '')}" placeholder="you@example.com" /></div>
+          <label class="check-row form-row full">
+            <input type="checkbox" name="emailNotifications" value="true" ${settings.emailNotifications ? 'checked' : ''} />
+            <span>Send email when a new Telegram message arrives</span>
+            <small>${settings.emailProviderConfigured ? 'Email provider is configured.' : 'Set RESEND_API_KEY in Cloudflare secrets before alerts can be sent.'}</small>
+          </label>
+          <div class="actions"><button class="primary">Save Email Settings</button></div>
+        </form>
+      </div>
+      <div class="panel">
+        <h2>Panel Password</h2>
+        <p class="muted">Change the admin password used for this dashboard. Minimum 8 characters.</p>
+        <form id="adminPasswordForm" class="form-grid">
+          <div class="form-row full"><label>New Password</label><input name="newPassword" type="password" autocomplete="new-password" /></div>
+          <div class="form-row full"><label>Confirm Password</label><input name="confirmPassword" type="password" autocomplete="new-password" /></div>
+          <div class="actions"><button class="primary">Update Password</button></div>
+        </form>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px;">
+      <h2>Email Provider</h2>
+      <div class="readiness-grid">
+        ${statusItem('Bound Email', settings.adminEmail ? settings.adminEmail : 'Not bound', Boolean(settings.adminEmail))}
+        ${statusItem('Message Alerts', settings.emailNotifications ? 'Enabled' : 'Disabled', Boolean(settings.emailNotifications))}
+        ${statusItem('Resend API', settings.emailProviderConfigured ? 'Configured' : 'Missing', Boolean(settings.emailProviderConfigured))}
+      </div>
+      <pre class="code-note">Cloudflare secret needed for sending email:
+RESEND_API_KEY = your Resend API key
+Optional:
+EMAIL_FROM = TG Bot Admin &lt;notify@yourdomain.com&gt;</pre>
+    </div>
+  `;
+}
+
 function knowledgeView() {
   return `
     <div class="panel" style="margin-top:16px;">
@@ -973,7 +1025,7 @@ function systemStatusView() {
         ${statCard('Port', status.port || '-')}
       </div>
       <div class="status-grid" style="margin-top:14px;">
-        ${statusItem('Admin Password', admin.configured ? 'Configured' : 'Using default admin123', admin.configured)}
+        ${statusItem('Admin Password', admin.configured ? 'Configured' : 'Not configured', admin.configured)}
         ${statusItem('AI API Key', ai.enabled ? 'Configured' : 'Not configured', ai.enabled)}
         ${statusItem('Proxy', network.proxyConfigured ? 'Configured' : 'Not configured', true)}
         ${statusItem('Data File', storage.dataFileExists ? `${formatBytes(storage.dataFileBytes)} stored` : 'Missing', storage.dataFileExists)}
@@ -1379,6 +1431,7 @@ function modalView(type) {
   if (type === 'broadcast') return formModal('New Broadcast', broadcastForm());
   if (type.startsWith('broadcast-detail:')) return formModal('Broadcast Detail', broadcastDetailView(state.broadcastDetail));
   if (type === 'test-chat') return formModal('Add Test Chat', testChatForm());
+  if (type === 'password-reset') return formModal('Reset Password', passwordResetView());
   return '';
 }
 
@@ -1414,6 +1467,26 @@ function botForm(bot = null) {
         <button type="button" data-action="test-token">Test Token</button>
       </div>
     </form>
+  `;
+}
+
+function passwordResetView() {
+  return `
+    <div class="grid cols-2">
+      <form id="passwordResetRequestForm" class="form-grid">
+        <h3 class="full">Request Code</h3>
+        <div class="form-row full"><label>Bound Email</label><input name="email" type="email" placeholder="you@example.com" required /></div>
+        <div class="actions full"><button class="primary">Send Reset Code</button></div>
+      </form>
+      <form id="passwordResetConfirmForm" class="form-grid">
+        <h3 class="full">Set New Password</h3>
+        <div class="form-row full"><label>Bound Email</label><input name="email" type="email" required /></div>
+        <div class="form-row full"><label>Reset Code</label><input name="code" inputmode="numeric" autocomplete="one-time-code" required /></div>
+        <div class="form-row full"><label>New Password</label><input name="newPassword" type="password" autocomplete="new-password" required /></div>
+        <div class="actions full"><button class="primary">Reset Password</button></div>
+      </form>
+    </div>
+    <p class="muted">Reset codes require a bound admin email and RESEND_API_KEY configured in Cloudflare.</p>
   `;
 }
 
@@ -1533,6 +1606,15 @@ function broadcastDetailView(detail) {
 }
 
 function bindLogin() {
+  document.querySelectorAll('[data-modal]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.modal = button.dataset.modal;
+      render();
+    });
+  });
+  document.querySelectorAll('[data-action="close-modal"]').forEach((button) => button.addEventListener('click', closeModal));
+  document.querySelector('#passwordResetRequestForm')?.addEventListener('submit', requestPasswordReset);
+  document.querySelector('#passwordResetConfirmForm')?.addEventListener('submit', confirmPasswordReset);
   document.querySelector('#loginButton')?.addEventListener('click', async () => {
     state.password = document.querySelector('#passwordInput').value;
     localStorage.setItem('tg_admin_password', state.password);
@@ -1747,6 +1829,10 @@ function bindForms() {
   document.querySelector('#replyForm')?.addEventListener('submit', submitReply);
   document.querySelector('#testChatForm')?.addEventListener('submit', submitTestChat);
   document.querySelector('#knowledgeForm')?.addEventListener('submit', submitKnowledge);
+  document.querySelector('#adminSettingsForm')?.addEventListener('submit', saveAdminSettings);
+  document.querySelector('#adminPasswordForm')?.addEventListener('submit', saveAdminPassword);
+  document.querySelector('#passwordResetRequestForm')?.addEventListener('submit', requestPasswordReset);
+  document.querySelector('#passwordResetConfirmForm')?.addEventListener('submit', confirmPasswordReset);
   document.querySelector('[data-action="save-internal-note"]')?.addEventListener('click', submitInternalNote);
   document.querySelector('[data-action="preview-translation"]')?.addEventListener('click', previewTranslation);
   document.querySelector('[data-action="test-rule"]')?.addEventListener('click', testRule);
@@ -2133,6 +2219,79 @@ async function submitKnowledge(event) {
   } catch (error) {
     notify(error.message);
   }
+}
+
+async function saveAdminSettings(event) {
+  event.preventDefault();
+  try {
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    state.adminSettings = await api('/api/admin-settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        adminEmail: data.adminEmail || '',
+        emailNotifications: data.emailNotifications === 'true'
+      })
+    });
+    notify('Admin settings saved');
+    await refreshAll();
+  } catch (error) {
+    notify(error.message);
+  }
+}
+
+async function saveAdminPassword(event) {
+  event.preventDefault();
+  try {
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    if (String(data.newPassword || '').length < 8) return notify('Password must be at least 8 characters');
+    if (data.newPassword !== data.confirmPassword) return notify('Passwords do not match');
+    await api('/api/admin-password', {
+      method: 'PUT',
+      body: JSON.stringify({ newPassword: data.newPassword })
+    });
+    state.password = data.newPassword;
+    localStorage.setItem('tg_admin_password', state.password);
+    event.currentTarget.reset();
+    notify('Password updated');
+    await refreshAll();
+  } catch (error) {
+    notify(error.message);
+  }
+}
+
+async function requestPasswordReset(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const response = await fetch('/api/password-reset/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: data.email || '' })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) return notify(result.error || 'Reset request failed');
+  notify(result.sent ? 'Reset code sent to email' : 'Reset email could not be sent. Check bound email and email provider.');
+}
+
+async function confirmPasswordReset(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const response = await fetch('/api/password-reset/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: data.email || '',
+      code: data.code || '',
+      newPassword: data.newPassword || ''
+    })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) return notify(result.error || 'Password reset failed');
+  state.password = data.newPassword;
+  localStorage.setItem('tg_admin_password', state.password);
+  state.modal = null;
+  notify('Password reset completed');
+  await refreshAll();
+  startRealtime();
 }
 
 async function saveAi() {
