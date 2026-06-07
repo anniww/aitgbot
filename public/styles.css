@@ -2159,6 +2159,77 @@ label {
 .stat:nth-child(3) .sparkline i { background: #7c3aed; }
 .stat:nth-child(4) .sparkline i { background: var(--red); }
 
+.page-head {
+  border-radius: 16px;
+  padding: 22px 24px;
+  background:
+    linear-gradient(135deg, rgba(25, 118, 243, .08), transparent 44%),
+    #ffffff;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, .07);
+}
+
+.page-head::after {
+  display: none;
+}
+
+.panel {
+  border-radius: 16px;
+  border-color: #dfe7ef;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, .065);
+}
+
+.panel:hover {
+  border-color: #ccd9e5;
+}
+
+.form-row label {
+  color: #64748b;
+  letter-spacing: .03em;
+}
+
+input,
+select,
+textarea {
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+button {
+  border-radius: 10px;
+}
+
+.table {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.table th:first-child {
+  border-top-left-radius: 12px;
+}
+
+.table th:last-child {
+  border-top-right-radius: 12px;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.analytics-toolbar,
+.toolbar {
+  border-radius: 16px;
+}
+
+.modal {
+  border-radius: 18px;
+}
+
+.toast,
+.incoming-notice {
+  border-radius: 14px;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;

@@ -1,4 +1,4 @@
-const state = {
+﻿const state = {
   page: 'dashboard',
   password: localStorage.getItem('tg_admin_password') || '',
   bots: [],
@@ -336,14 +336,14 @@ function render() {
         <div class="workspace-select">
           <span class="workspace-mark">${navIcon('data')}</span>
           <span>
-            <strong>Acme Workspace</strong>
+            <strong>Bot Workspace</strong>
             <small>Private Bot Console</small>
           </span>
           <span class="chevron">v</span>
         </div>
         <label class="global-search">
           <span>${navIcon('search')}</span>
-          <input placeholder="Search bots, users, messages..." />
+          <input id="globalSearch" placeholder="Search bots, users, messages..." />
           <kbd>Ctrl K</kbd>
         </label>
         <div class="top-status">
@@ -377,7 +377,7 @@ function render() {
         </nav>
         <div class="sidebar-workspace">
           <span>${navIcon('building')}</span>
-          <div><strong>Acme Workspace</strong><small>ID: 987654321</small></div>
+          <div><strong>Bot Workspace</strong><small>${state.bots.length} bots 路 ${state.chats.length} chats</small></div>
           <i>v</i>
         </div>
       </aside>
@@ -406,27 +406,27 @@ function currentPageLabel() {
 
 function navIcon(name) {
   const icons = {
-    grid: '□',
-    chart: '▥',
-    bot: '◉',
-    mail: '✉',
-    chat: '◌',
-    list: '☰',
-    spark: '✦',
-    users: '◎',
-    send: '➤',
-    image: '▧',
-    file: '▤',
-    data: '▦',
-    pulse: '⌁',
-    gear: '⚙',
-    search: '⌕',
-    refresh: '↻',
-    bell: '♢',
-    'bell-off': '♢',
-    building: '▣'
+    grid: 'DB',
+    chart: 'AN',
+    bot: 'BT',
+    mail: 'IN',
+    chat: 'RP',
+    list: 'MN',
+    spark: 'AI',
+    users: 'US',
+    send: 'BC',
+    image: 'MD',
+    file: 'LG',
+    data: 'DA',
+    pulse: 'DX',
+    gear: 'ST',
+    search: 'SE',
+    refresh: 'RF',
+    bell: 'NT',
+    'bell-off': 'NT',
+    building: 'WK'
   };
-  return icons[name] || '•';
+  return icons[name] || '..';
 }
 
 function loginView() {
@@ -595,10 +595,10 @@ function analyticsView() {
       </div>
     </div>
     <div class="grid cols-4">
-      ${statCard('去重前用户', data.totals.rawUserCount || data.totals.messageCount || 0)}
-      ${statCard('去重后用户', data.totals.uniqueUserCount || 0)}
-      ${statCard('重复用户', data.totals.duplicateUserCount || 0)}
-      ${statCard('包含机器人', data.totals.botCount || (state.analyticsBotId ? 1 : 0))}
+      ${statCard('Users Before Dedup', data.totals.rawUserCount || data.totals.messageCount || 0, 'users')}
+      ${statCard('Users After Dedup', data.totals.uniqueUserCount || 0, 'users')}
+      ${statCard('Repeated Users', data.totals.duplicateUserCount || 0, 'pulse')}
+      ${statCard('Bots Included', data.totals.botCount || (state.analyticsBotId ? 1 : 0), 'bot')}
     </div>
     <div class="panel analytics-summary">
       Showing ${escapeHtml(data.startDate || '-')} to ${escapeHtml(data.endDate || '-')}
@@ -619,9 +619,9 @@ function analyticsView() {
     </div>
     <div class="grid cols-2" style="margin-top:16px;">
       <div class="panel">
-        <h2>重复用户列表</h2>
+        <h2>閲嶅鐢ㄦ埛鍒楄〃</h2>
         <table class="table">
-          <thead><tr><th>用户</th><th>机器人</th><th>消息数</th><th>首次</th><th>最近</th><th>操作</th></tr></thead>
+          <thead><tr><th>鐢ㄦ埛</th><th>鏈哄櫒浜?/th><th>娑堟伅鏁?/th><th>棣栨</th><th>鏈€杩?/th><th>鎿嶄綔</th></tr></thead>
           <tbody>${(data.duplicateUsers || []).map((row) => `
             <tr>
               <td>${escapeHtml(row.displayName || row.chatId)}</td>
@@ -629,24 +629,24 @@ function analyticsView() {
               <td>${row.messageCount || 0}</td>
               <td>${formatTime(row.firstMessageAt)}</td>
               <td>${formatTime(row.lastMessageAt)}</td>
-              <td><button data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">打开对话</button></td>
+              <td><button data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">鎵撳紑瀵硅瘽</button></td>
             </tr>
-          `).join('') || '<tr><td colspan="6" class="empty">当前日期范围没有重复用户。</td></tr>'}</tbody>
+          `).join('') || '<tr><td colspan="6" class="empty">褰撳墠鏃ユ湡鑼冨洿娌℃湁閲嶅鐢ㄦ埛銆?/td></tr>'}</tbody>
         </table>
       </div>
       <div class="panel">
-        <h2>重复用户对话入口</h2>
+        <h2>閲嶅鐢ㄦ埛瀵硅瘽鍏ュ彛</h2>
         <table class="table">
-          <thead><tr><th>用户</th><th>机器人</th><th>消息数</th><th>最近活跃</th><th>操作</th></tr></thead>
+          <thead><tr><th>鐢ㄦ埛</th><th>鏈哄櫒浜?/th><th>娑堟伅鏁?/th><th>鏈€杩戞椿璺?/th><th>鎿嶄綔</th></tr></thead>
           <tbody>${(data.duplicateUsers || []).map((row) => `
             <tr>
               <td>${escapeHtml(row.displayName || row.chatId)}</td>
               <td>${escapeHtml(row.botName || row.botId)}</td>
               <td>${row.messageCount || 0}</td>
               <td>${formatTime(row.lastMessageAt)}</td>
-              <td><button class="primary" data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">进入回复</button></td>
+              <td><button class="primary" data-action="open-analytics-chat" data-bot-id="${escapeAttr(row.botId)}" data-chat-id="${escapeAttr(row.chatId)}">杩涘叆鍥炲</button></td>
             </tr>
-          `).join('') || '<tr><td colspan="5" class="empty">当前日期范围没有重复用户对话。</td></tr>'}</tbody>
+          `).join('') || '<tr><td colspan="5" class="empty">褰撳墠鏃ユ湡鑼冨洿娌℃湁閲嶅鐢ㄦ埛瀵硅瘽銆?/td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -1784,6 +1784,16 @@ function bindCommon() {
   document.querySelector('#soundVolume')?.addEventListener('change', () => {
     state.soundUnlocked = true;
     if (state.soundEnabled) playNotificationSound();
+  });
+  document.querySelector('#globalSearch')?.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') return;
+    const query = event.currentTarget.value.trim();
+    if (!query) return;
+    state.page = 'messages';
+    state.chatSearch = query;
+    state.messageSearch = query;
+    await refreshMessages();
+    render();
   });
   document.querySelector('[data-action="logout"]')?.addEventListener('click', () => {
     stopRealtime();
